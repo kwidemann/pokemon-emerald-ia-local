@@ -29,6 +29,7 @@ class MGBAClient:
     def __init__(self, host: str = "127.0.0.1", port: int = 8888, timeout: float = 30.0):
         self._sock = socket.create_connection((host, port), timeout=timeout)
         self._buffer = b""
+        self._has_multi = True
 
     def close(self) -> None:
         self._sock.close()
@@ -69,6 +70,23 @@ class MGBAClient:
 
     def read_range(self, addr: int, length: int) -> bytes:
         return bytes.fromhex(self._command(f"readrange {addr} {length}"))
+
+    def read_multi(self, ranges: list[tuple[int, int]]) -> tuple[int, list[bytes]]:
+        """Lee varios rangos `(dirección, largo)` en una sola llamada. Devuelve `(frame, [bytes, ...])`.
+
+        Si el servidor Lua cargado es una versión anterior sin `readmulti`, cae a una lectura por rango.
+        """
+        if self._has_multi:
+            args = " ".join(f"{addr}:{length}" for addr, length in ranges)
+            try:
+                parts = self._command(f"readmulti {args}").split()
+            except EmulatorError as err:
+                if "desconocido" not in str(err):
+                    raise
+                self._has_multi = False
+            else:
+                return int(parts[0]), [bytes.fromhex(p) for p in parts[1:]]
+        return self.frame(), [self.read_range(addr, length) for addr, length in ranges]
 
     def step(self, keys: Key | int = 0, frames: int = 1) -> int:
         """Mantiene `keys` pulsadas durante `frames` frames y devuelve el frame final."""

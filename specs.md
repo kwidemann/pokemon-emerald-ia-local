@@ -105,7 +105,7 @@ pokemon-ia/
 ├─ .gitignore
 ├─ roms/            # ROM del usuario (ignorada por git)
 ├─ emulator/        # script Lua de mGBA y cliente del socket
-├─ env/             # PokemonEmeraldEnv, ram_map.py, rewards.py
+├─ env/             # pokemon_env.py (PokemonEmeraldEnv), ram_map.py, state.py, milestones.py
 ├─ agents/
 │  ├─ rules/
 │  ├─ rl/
@@ -131,9 +131,9 @@ pokemon-ia/
 - **Verificado en mGBA con la ROM real:** `ping`, `frame`, `step` (pulsa teclas N frames), `readrange`, `savestate`, `loadstate` y `screenshot` (la captura mostró el menú principal NEW GAME / OPTION).
 - **ROM:** `roms/Pokemon - Emerald Version (USA, Europe).zip` (6,55 MB). mGBA lee el `.zip` directamente.
 - **Carga del script:** `mGBA.exe` 0.10.5 **no acepta `--script`** (se cierra). Se carga a mano en cada sesión: *Tools > Scripting > File > Load script*. Para reiniciar con una versión nueva del Lua hay que cerrar mGBA y volver a cargarlo.
-- **Corrección pendiente de cargar:** las rutas con espacios se cortaban en el primer espacio (`Repositorios Git`), y mGBA escribió un archivo suelto en `Documents`. Ya se corrigió en `server.lua` (la ruta es el resto de la línea), pero la copia cargada en mGBA ahora es la anterior. **Recargar `server.lua`** y volver a probar `savestate` con una ruta con espacios.
+- **Rutas con espacios:** se cortaban en el primer espacio (`Repositorios Git`) y mGBA escribió un archivo suelto en `Documents`. Corregido en `server.lua` y verificado tras recargarlo (7.3): `savestate`/`loadstate` aceptan rutas con espacios.
 - **`step` avanza un frame de más** (pedir 30 avanza 31). Es constante, así que no afecta el determinismo, pero hay que tenerlo en cuenta al contar frames.
-- **Velocidad:** el emulador va a velocidad real (60 fps): `step` de 8 frames tarda ~150 ms por llamada. Para entrenar hay que activar el avance rápido sin límite (menú *Emulation* de mGBA) y medir de nuevo.
+- **Velocidad:** a tiempo real (60 fps) `step` de 8 frames tardaba ~150 ms por llamada. Con el avance rápido sin límite activado, ~1400 fps (medición en 7.3).
 - **Protocolo:** una línea por comando (`ping`, `frame`, `read8|16|32`, `readrange`, `step <máscara> <frames>`, `savestate`, `loadstate`, `screenshot`); respuesta `OK <datos>` o `ERR <motivo>`. Detalle en el encabezado de `emulator/server.lua`.
 
 ### 7.2 Estado de la Fase 2: mapa de RAM (2026-11-01)
@@ -150,7 +150,22 @@ pokemon-ia/
 - **Movimiento medido:** una pulsación corta (1-6 frames) mueve exactamente una casilla, y la posición en RAM se actualiza unos frames después de soltar la tecla. Si el personaje no miraba hacia esa dirección, la primera pulsación solo lo gira. Mantener la tecla mientras se lee la posición cada frame hace avanzar varias casillas por error; `Driver.move()` usa pulsaciones de 4 frames con 20 de pausa.
 - **Velocidad medida:** 600 frames en 10 s, o sea 60 fps (tiempo real). Sigue pendiente activar el avance rápido sin límite en mGBA.
 - **Lecciones del control por botones:** la `A` se usa para avanzar texto, pero si no hay cuadro abierto interactúa con lo que tiene delante (en la camioneta abrió mensajes de las cajas). Para decidir qué pulsar hay que mirar `script_active` en vez de contar pulsaciones.
-- **Rendimiento:** `read_state` hace ~7 llamadas por el socket. Más adelante conviene un comando `readmulti` en el Lua para leerlo todo en una sola.
+- **Rendimiento:** `read_state` hacía ~7 llamadas por el socket; con `readmulti` (ver 7.3) hace 2. Hasta que se recargue el Lua, el cliente cae solo a una lectura por rango.
+
+### 7.3 Estado de la Fase 3: entorno Gymnasium (2026-11-01)
+
+- **Hecho:** `env/pokemon_env.py` (`PokemonEmeraldEnv`), `env/milestones.py` (catálogo del Tramo 1 y `Tracker` del historial), `scripts/random_agent.py` y el comando `readmulti` en `server.lua` con `MGBAClient.read_multi`. `read_state` pasó de ~7 llamadas por el socket a 2.
+- **Acciones:** `Discrete(8)` = `A, B, UP, DOWN, LEFT, RIGHT, START, NOOP`. Una acción mantiene la tecla `hold_frames=4` y espera `wait_frames=16`. Verificado en vivo: si el personaje ya mira en esa dirección avanza exactamente **una casilla**; si no, la primera acción solo lo gira (el agente tiene que aprender eso).
+- **Observación:** vector `Box(12,)` en [0, 1]: grupo y número de mapa (escalados), `x`, `y`, script activo, en batalla, batalla de entrenador, tamaño del equipo, fracción de HP, nivel del líder, medallas y `log(dinero)`. Es **provisional**: los IDs discretos de mapa escalados dan una falsa noción de cercanía (ver 5.2). El estado completo viaja en `info["state"]`.
+- **Recompensa:** solo por hitos (1,0 cada uno; 5,0 la medalla), "enganchados" por episodio. Lo que ya se cumple en el savestate al hacer `reset()` se marca sin recompensa. Ayuda opcional `new_tile_bonus` (0 por defecto). La pregunta Q5 (una recompensa común o una por enfoque) sigue abierta; estos valores son provisionales.
+- **Episodio:** termina (`terminated`) al conseguir el hito `terminal_milestone` (16, medalla 1) y se trunca a `max_steps` (2000 por defecto). El `reset()` carga el savestate y deja 2 frames para que la RAM se asiente.
+- **Hitos con detector:** 3 (starter) y 5 (laboratorio), verificados. Los hitos 6, 7, 9, 12, 13, 14 y 16 tienen detector sin verificar (los IDs de mapa de Oldale, Ruta 103, Petalburg y Rustboro están **inferidos** del orden de pokeemerald; Littleroot `(0,9)` y Ruta 101 `(0,16)` sí coinciden con ese orden). Los hitos 8, 10, 11 y 15 todavía no tienen detector.
+- **Verificado en vivo:** `reset()` carga el savestate y marca los hitos 3 y 5 sin recompensa; el agente aleatorio corrió 60 pasos sin errores; los movimientos del entorno cambian la posición como se espera.
+- **Sin verificar:** el bit de batalla de entrenador (`0x08`) y, por tanto, el contador de batallas ganadas; las medallas.
+- **Velocidad:** con el Lua viejo y a tiempo real el agente aleatorio daba **1,7 pasos/s**. Tras recargar el Lua y activar el avance rápido: `step 0 600` tarda 0,42 s (~1400 fps) y el agente aleatorio da **~52 pasos/s** (1500 pasos en ~28 s, 20 frames por acción, 2 llamadas de lectura por paso). Ya es viable para RL (~190 mil pasos por hora con un solo emulador); el siguiente cuello de botella es el socket, no el emulador.
+- **Verificado tras recargar el Lua:** `readmulti` funciona; `savestate` y `loadstate` aceptan rutas con espacios; el savestate inicial vive ahora en `runs/lab_mudkip.ss0` (ignorado por git, **no se puede regenerar con un script**: se hizo jugando la intro; ver pendientes). El entorno resuelve la ruta del savestate a absoluta porque mGBA interpreta las relativas desde su propio directorio.
+- **Transición de mapa:** al cruzar una puerta, un paso de 6000 aleatorios leyó la ubicación como mapa `(0,0)` en `(0,0)`, lo que disparó el hito de Petalburg (`(0,0)`) por error. `GameState.in_transition` detecta ese caso y el entorno lo ignora para hitos e historial. Es un filtro empírico, sin bandera de transición verificada.
+- **Pendiente de la Fase 3:** script que juegue la intro hasta el laboratorio y genere el savestate (hoy solo existe el archivo); verificar los hitos con detector sin probar; medir con varios emuladores en paralelo.
 
 ## 8. Métricas de comparación
 

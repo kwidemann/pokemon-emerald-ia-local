@@ -32,6 +32,14 @@ Registro cronológico de lo que se hizo, lo que se decidió y lo que se descubri
 - **Descubierto:** un NPC bloquea la salida norte de Littleroot ("Um, um, um!") hasta visitar la casa del vecino. En la pantalla del reloj el cursor arranca en NO. Una pulsación corta (1–6 frames) mueve exactamente una casilla; mantener la tecla mientras se lee la posición hace avanzar varias. El emulador corre a 60 fps, tiempo real.
 - **Savestate inicial:** `C:\AI\pokemon-ia-states\lab_mudkip.ss0` (laboratorio, `(6,5)`, Mudkip nivel 5). Está fuera del proyecto por el problema de las rutas con espacios.
 
+### Fase 3: entorno Gymnasium (primera versión)
+- **Hecho:** `readmulti` en `server.lua` y `MGBAClient.read_multi` (con caída automática al método antiguo si el Lua cargado es viejo); `read_state` ahora usa 2 llamadas; `env/milestones.py`, `env/pokemon_env.py` y `scripts/random_agent.py`.
+- **Verificado:** `reset()` desde el savestate marca los hitos 3 y 5 sin recompensa; 60 pasos del agente aleatorio sin errores; una acción mueve una casilla si el personaje ya mira en esa dirección, y si no solo lo gira.
+- **Medido:** 1,7 pasos/s a velocidad real (20 frames por acción, 60 fps). Con tiempo real no se puede entrenar.
+- **Sin verificar:** `readmulti` en el servidor (el Lua cargado en mGBA es el viejo y se usó la caída automática), y los IDs de mapa inferidos de Oldale, Ruta 103, Petalburg y Rustboro.
+- **Después de recargar el Lua y activar el avance rápido:** `readmulti` y las rutas con espacios funcionan; el savestate se movió a `runs/lab_mudkip.ss0`. Velocidad: ~52 pasos/s (antes 1,7). Se descubrió que al cruzar una puerta la ubicación se lee un paso como `(0,0)` en `(0,0)`, lo que disparó el hito de Petalburg por error; se añadió `GameState.in_transition` y el entorno lo ignora. Las rutas relativas del savestate fallaban porque mGBA las resuelve desde su directorio; el entorno ahora las vuelve absolutas.
+- **Pendiente:** script que genere el savestate jugando la intro (hoy solo existe el archivo, ignorado por git); verificar los detectores de hitos; paralelizar emuladores.
+
 ### Control de versiones y organización
 - **Hecho:** `git init` con rama `main`. Se creó esta bitácora y se añadió a `specs.md` la sección de hitos propuestos. A pedido del usuario se hizo el primer commit del proyecto (el hash se ve con `git log`).
 - **Publicación en GitHub:** el equipo no tiene `gh` instalado, así que el repositorio público lo crea el usuario en GitHub y después se hace el `push` desde aquí.

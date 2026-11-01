@@ -7,6 +7,7 @@
 --   frame
 --   read8|read16|read32 <addr>        addr en decimal o 0x...
 --   readrange <addr> <len>            respuesta en hexadecimal
+--   readmulti <addr>:<len> ...        varios rangos en una llamada: OK <frame> <hex> <hex> ...
 --   step <mascara_teclas> <frames>    mantiene las teclas N frames y responde al terminar
 --   savestate <ruta> | loadstate <ruta>
 --   screenshot <ruta>
@@ -69,6 +70,18 @@ local function handle(id, line)
 		reply(id, "OK " .. emu:read32(tonumber(parts[2])))
 	elseif cmd == "readrange" then
 		reply(id, "OK " .. toHex(emu:readRange(tonumber(parts[2]), tonumber(parts[3]))))
+	elseif cmd == "readmulti" then
+		-- readmulti <addr>:<len> <addr>:<len> ...  ->  OK <frame> <hex1> <hex2> ...
+		local out = { tostring(emu:currentFrame()) }
+		for i = 2, #parts do
+			local addr, len = string.match(parts[i], "^(%w+):(%d+)$")
+			if not addr then
+				reply(id, "ERR rango invalido: " .. parts[i])
+				return
+			end
+			out[#out + 1] = toHex(emu:readRange(tonumber(addr), tonumber(len)))
+		end
+		reply(id, "OK " .. table.concat(out, " "))
 	elseif cmd == "step" then
 		if pending then
 			reply(id, "ERR step en curso")
