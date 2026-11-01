@@ -10,6 +10,7 @@
 --   readmulti <addr>:<len> ...        varios rangos en una llamada: OK <frame> <hex> <hex> ...
 --   step <mascara_teclas> <frames>    mantiene las teclas N frames y responde al terminar
 --   savestate <ruta> | loadstate <ruta>
+--   reset                             reinicia la consola (arranca desde el logo)
 --   screenshot <ruta>
 --
 -- La máscara de teclas usa el orden de bits de GBA: A=0 B=1 SELECT=2 START=3
@@ -70,6 +71,10 @@ local function handle(id, line)
 		reply(id, "OK " .. emu:read32(tonumber(parts[2])))
 	elseif cmd == "readrange" then
 		reply(id, "OK " .. toHex(emu:readRange(tonumber(parts[2]), tonumber(parts[3]))))
+	elseif cmd == "reset" then
+		-- Reinicia la consola como si se apagara y encendiera (vuelve al logo/título; no toca el .sav).
+		emu:reset()
+		reply(id, "OK")
 	elseif cmd == "readmulti" then
 		-- readmulti <addr>:<len> <addr>:<len> ...  ->  OK <frame> <hex1> <hex2> ...
 		local out = { tostring(emu:currentFrame()) }

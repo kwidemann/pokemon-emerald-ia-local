@@ -98,5 +98,9 @@ class MGBAClient:
     def load_state(self, path: str) -> None:
         self._command(f"loadstate {path}")
 
+    def reset(self) -> None:
+        """Reinicia la consola (arranca desde el logo). No borra el .sav."""
+        self._command("reset")
+
     def screenshot(self, path: str) -> None:
         self._command(f"screenshot {path}")
