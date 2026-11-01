@@ -1,0 +1,21 @@
+[project]
+name = "pokemon-ia"
+version = "0.1.0"
+description = "Agentes de IA que juegan Pokémon Esmeralda (proyecto educativo)"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "gymnasium",
+    "numpy",
+    "pillow",
+    "ollama",
+]
+
+[project.optional-dependencies]
+# PyTorch con CUDA se instala aparte desde el índice de PyTorch (ver specs.md, sección 3).
+rl = [
+    "stable-baselines3",
+    "tensorboard",
+]
+dev = [
+    "pytest",
+]

@@ -1,0 +1,45 @@
+# Bitácora de pokemon-ia
+
+Registro cronológico de lo que se hizo, lo que se decidió y lo que se descubrió. Las especificaciones y el diseño viven en [`specs.md`](../specs.md); aquí va el "qué pasó y cuándo".
+
+**Cómo se mantiene:** al terminar cada paso se agrega una entrada al final de su día (más reciente abajo) con *Hecho*, *Verificado*, *Decisiones* y *Pendiente*. Lo que no se comprobó en vivo se dice. Cada entrada de un paso que cambió archivos termina con el commit que la contiene, cuando el usuario decide hacerlo.
+
+---
+
+## 2026-11-01
+
+### Diseño y decisiones iniciales
+- **Objetivo:** proyecto educativo local en el que agentes de IA juegan Pokémon Esmeralda (GBA), orquestados con scripts de Python invocables desde Claude Code, aprovechando la GPU y la CPU.
+- **Enfoques a comparar:** (1) reglas / máquina de estados, (2) aprendizaje por refuerzo (PPO), (3) modelo de mundo tipo JEPA sobre la RAM, (4) híbrido: ejecutor + Laya (decisor rápido local) + Ollama (supervisor lento).
+- **Decisiones del usuario:** emulador mGBA con puente Lua por socket; observación estructurada leída de la RAM; meta a largo plazo de completar el juego mediante hitos; JEPA sobre RAM y no sobre píxeles; supervisor textual con `qwen2.5:7b` o `gemma:7b`; se acepta el diseño híbrido de dos niveles.
+- **Hardware:** RTX 2060 Max-Q de 6 GB, i7-10750H (6 núcleos), 11,8 GB de RAM.
+
+### Fase 1: fundaciones
+- **Hecho:** proyecto `uv` con Python 3.12 (el 3.13 del sistema se evitó); mGBA 0.10.5 instalado con winget; `emulator/server.lua` (servidor TCP en el puerto 8888), `emulator/client.py` (`MGBAClient`) y `scripts/ping.py`.
+- **Verificado con la ROM real:** `ping`, `frame`, `step`, `readrange`, `savestate`, `loadstate` y `screenshot`.
+- **Descubierto:** `mGBA.exe --script` no existe en 0.10.5 y el programa se cierra, así que el Lua se carga a mano en cada sesión (*Tools > Scripting > File > Load script*). `step N` avanza N+1 frames, una constante que no afecta el determinismo.
+- **Incidente:** el parser de rutas cortaba en el primer espacio y mGBA escribió un archivo suelto llamado `Repositorios` en `Documents`. Se borró y se corrigió `server.lua`; la corrección **aún no está cargada** en mGBA, y mientras tanto las capturas de pantalla vuelven a dejar ese archivo suelto, que se borra a mano.
+
+### Fase 2: mapa de RAM
+- **Hecho:** `env/ram_map.py` (direcciones con su fuente y estado de verificación), `env/state.py` (`read_state` y `parse_party_mon`) y `scripts/inspect_state.py`.
+- **ROM:** SHA-1 `f3ae0881…07b7`, idéntico al de pret/pokeemerald (v1.0 USA/Europa, `BPEE`).
+- **Descubierto:** los save blocks cambian de dirección en cada arranque; se leen siempre a través de `gSaveBlock1Ptr` y `gSaveBlock2Ptr`.
+- **Verificado en vivo:** posición, mapa, dinero (3000, con el XOR de la clave de cifrado), nombre del jugador y estado de script (0 con texto abierto, 2 sin script).
+
+### Automatización de la intro y verificación del equipo
+- **Hecho:** `scripts/drive.py` (`Driver` con `advance_dialogue`, `move`, `press`). Con él el agente llevó la partida desde Littleroot hasta el laboratorio de Birch: casa, reloj de pared, casa del vecino y su cuarto, Ruta 101, elección de **Mudkip** (elegido por el agente), primera batalla y laboratorio.
+- **Verificado en vivo:** el descifrado del Pokémon (`species=283`, nivel 5, HP 21/21, Placaje y Gruñido, `checksum_ok=True`); los cambios tras la batalla (PP 35→32, HP 21→18, experiencia 135→152); `in_battle` pasa a `True` al empezar y a `False` al terminar; `gBattleTypeFlags = 0x14` en la primera batalla; `loadstate` devuelve la posición original.
+- **Descubierto:** un NPC bloquea la salida norte de Littleroot ("Um, um, um!") hasta visitar la casa del vecino. En la pantalla del reloj el cursor arranca en NO. Una pulsación corta (1–6 frames) mueve exactamente una casilla; mantener la tecla mientras se lee la posición hace avanzar varias. El emulador corre a 60 fps, tiempo real.
+- **Savestate inicial:** `C:\AI\pokemon-ia-states\lab_mudkip.ss0` (laboratorio, `(6,5)`, Mudkip nivel 5). Está fuera del proyecto por el problema de las rutas con espacios.
+
+### Control de versiones y organización
+- **Hecho:** `git init` con rama `main`. Se creó esta bitácora y se añadió a `specs.md` la sección de hitos propuestos. A pedido del usuario se hizo el primer commit del proyecto (el hash se ve con `git log`).
+- **Publicación en GitHub:** el equipo no tiene `gh` instalado, así que el repositorio público lo crea el usuario en GitHub y después se hace el `push` desde aquí.
+- **Decisiones:** se usará **solo Laya** (no Jev real por API); se versiona el proyecto con git; no se hacen commits sin que el usuario lo pida.
+- **Pendiente:**
+  - Elegir hitos definitivos y su orden (propuesta en `specs.md`, sección 9.1).
+  - Avance rápido sin límite en mGBA y nueva medición de velocidad.
+  - Recargar `server.lua` y mover el savestate a `runs/`.
+  - Comando `readmulti` en el Lua.
+  - Verificar medallas y batallas contra entrenadores.
+  - Fase 3: entorno Gymnasium.

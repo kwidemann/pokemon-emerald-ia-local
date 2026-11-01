@@ -1,0 +1,16 @@
+# ROMs y saves: los aporta el usuario, no se versionan
+roms/*
+!roms/.gitkeep
+*.gba
+*.sav
+*.ss*
+
+# Resultados de ejecuciones
+runs/*
+!runs/.gitkeep
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
