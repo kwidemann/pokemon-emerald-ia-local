@@ -35,6 +35,7 @@ Registro cronológico de lo que se hizo, lo que se decidió y lo que se descubri
 ### Control de versiones y organización
 - **Hecho:** `git init` con rama `main`. Se creó esta bitácora y se añadió a `specs.md` la sección de hitos propuestos. A pedido del usuario se hizo el primer commit del proyecto (el hash se ve con `git log`).
 - **Publicación en GitHub:** el equipo no tiene `gh` instalado, así que el repositorio público lo crea el usuario en GitHub y después se hace el `push` desde aquí.
+- **Hitos:** el usuario aprobó la lista de 16 hitos del Tramo 1 (`specs.md`, 9.1). El orden de las rutas viene de Bulbapedia, pero la página no se pudo descargar completa (403), así que los detalles marcados **[memoria]** (Pokédex, Wally, Team Aqua, nivel de evolución y equipo de Roxanne) quedan por verificar jugando.
 - **Decisiones:** se usará **solo Laya** (no Jev real por API); se versiona el proyecto con git; no se hacen commits sin que el usuario lo pida.
 - **Pendiente:**
   - Elegir hitos definitivos y su orden (propuesta en `specs.md`, sección 9.1).

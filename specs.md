@@ -160,33 +160,43 @@ Pasos (frames) hasta cada hito, tasa de éxito sobre N semillas/savestates, tiem
 
 - ~~**Q1.** JEPA sobre píxeles o RAM~~ → resuelta el 2026-11-01: **sobre RAM**.
 - ~~**Q2.** Jev real por API~~ → resuelta el 2026-11-01: **solo Laya** (emulación local); no se usa Jev real.
-- **Q3.** Hitos intermedios concretos del juego y su orden. Hay una propuesta en 9.1, pendiente de que el usuario la apruebe o la cambie.
+- ~~**Q3.** Hitos intermedios~~ → resuelta el 2026-11-01 para el Tramo 1 (16 hitos hasta la medalla 1, ver 9.1). El Tramo 2 queda sin detallar.
 - ~~**Q4.** `git init`~~ → resuelta el 2026-11-01: repositorio local en `main`, sin commits hasta que el usuario los pida. Sigue abierto dónde alojarlo (hoy sin remoto).
 - **Q5.** Recompensas: ¿mantener una sola función común o una por enfoque?
 - **Q6.** Laya: licencia de los pesos, versión de Python compatible, latencia real en esta máquina y fuente de las etiquetas para afinarlo.
 
-### 9.1 Hitos propuestos (borrador, sin aprobar)
+### 9.1 Hitos (Tramo 1 aprobado el 2026-11-01)
 
-Cada hito debe ser **detectable desde la RAM** (mapa, bandera, cantidad de medallas, equipo) para poder medirlo igual en los cuatro enfoques. Los identificadores de mapa y de bandera concretos se anotan al visitarlos y verificarlos; los de abajo son descripciones, no valores comprobados.
+Cada hito debe ser **detectable desde la RAM** (mapa, bandera, cantidad de medallas, equipo) para poder medirlo igual en los cuatro enfoques. Los identificadores de mapa y de bandera concretos se anotan al visitarlos y verificarlos.
 
-**Tramo 0, ya cubierto por el guion de la intro (sirve como savestate y prueba del detector):**
-1. Salir de la casa y poner el reloj.
-2. Conseguir el starter (`party_count >= 1`; verificado).
-3. Ganar la primera batalla (`in_battle` vuelve a `False` con el equipo vivo; verificado).
+**Fuente y fiabilidad:** solo el orden de las rutas (Littleroot, Ruta 101, Oldale, Ruta 103, Ruta 102, Petalburg, Ruta 104, Bosque Petalburgo, Rustboro) viene de una fuente ([Bulbapedia](https://bulbapedia.bulbagarden.net/wiki/Walkthrough:Pok%C3%A9mon_Emerald)); la página no se pudo descargar completa (error 403). Los detalles marcados con **[memoria]** salen de la memoria del asistente y hay que corregirlos al jugarlos, leyendo la RAM.
 
 **Tramo 1, primer objetivo realista para los agentes (hasta la primera medalla):**
-4. Recibir la Pokédex en el laboratorio y salir de Littleroot.
-5. Llegar a Oldale Town.
-6. Llegar a Petalburg City.
-7. Llegar a Rustboro City.
-8. Ganar un combate contra un entrenador (`gBattleTypeFlags` con el bit de entrenador, aún sin ver).
-9. Subir el starter a nivel 10, y luego a nivel 15.
-10. Capturar un Pokémon (`party_count >= 2`).
-11. Vencer a Roxanne y conseguir la **medalla 1** (bandera `0x867`).
 
-**Tramo 2, el juego completo:**
-12. Medallas 2 a 8, en el orden de Esmeralda: Brawly, Wattson, Flannery, Norman, Winona, Tate y Liza, Wallace (banderas `0x868`–`0x86E`).
-13. Liga Pokémon: los cuatro miembros de la Elite y el campeón.
+| # | Hito | Cómo se detecta | Estado |
+|---|---|---|---|
+| 1 | Reloj puesto y salida de casa | Mapa distinto del interior de la casa y script del reloj terminado | Hecho en la intro |
+| 2 | Visitar al vecino y ver al rival en su cuarto | Mapa `(1,3)` visitado | Hecho |
+| 3 | Starter conseguido | `party_count == 1` | Verificado |
+| 4 | Primera batalla ganada (Ruta 101) | `in_battle` vuelve a `False` con HP > 0 | Verificado |
+| 5 | Entrar al laboratorio de Birch | Mapa `(1,4)` | Hecho |
+| 6 | Llegar a Oldale Town | Mapa nuevo; se anota su ID al pisarlo | Pendiente |
+| 7 | Llegar al final de la Ruta 103 y pelear con el rival | `gBattleTypeFlags` con el bit de entrenador, aún sin ver | Pendiente |
+| 8 | Volver al laboratorio y recibir la Pokédex y Poké Balls **[memoria]** | Objeto nuevo en la bolsa o bandera de Pokédex (hay que leerla) | Pendiente |
+| 9 | Llegar a Petalburg City por la Ruta 102 | Mapa nuevo | Pendiente |
+| 10 | Ayudar a Wally a capturar a su Pokémon **[memoria]** | Su escena termina y `script_active` vuelve a `False` en Petalburg | Pendiente |
+| 11 | Cruzar el Bosque Petalburgo y vencer al recluta de Team Aqua **[memoria]** | Mapa del bosque y un combate de entrenador ganado | Pendiente |
+| 12 | Llegar a Rustboro City por la Ruta 104 | Mapa nuevo | Pendiente |
+| 13 | Capturar un segundo Pokémon | `party_count >= 2` | Pendiente |
+| 14 | Starter a nivel 16: Mudkip evoluciona a Marshtomp **[memoria]** | La especie interna pasa de 283 a 284 | Pendiente |
+| 15 | Entrar al gimnasio de Rustboro | Mapa del gimnasio | Pendiente |
+| 16 | Vencer a Roxanne | Bandera `0x867` y 1 medalla | Pendiente |
+
+Roxanne usa, de memoria, Geodude nivel 14, Geodude nivel 14 y Nosepass nivel 15 (tipo Roca); no está comprobado.
+
+**Tramo 2, el juego completo (sin detallar):**
+- Medallas 2 a 8, en el orden de Esmeralda: Brawly, Wattson, Flannery, Norman, Winona, Tate y Liza, Wallace (banderas `0x868`–`0x86E`).
+- Liga Pokémon: los cuatro miembros de la Elite y el campeón.
 
 **Sugerencias de diseño:**
 - **Un solo catálogo de hitos para todos los enfoques**, con la recompensa de cada hito definida aparte. Así la comparación es justa; lo que cambia por enfoque es la ayuda de recompensa (por ejemplo bonificación por casillas nuevas o por subir de nivel, que solo tiene sentido en RL y en JEPA).
