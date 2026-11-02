@@ -91,3 +91,31 @@ TRAMO_1: tuple[Milestone, ...] = (
     Milestone(15, "gimnasio de Rustboro", 1.0, _visited(RUSTBORO_GYM), True),
     Milestone(16, "medalla 1 (Roxanne)", 5.0, lambda s, t: s.badges >= 1, True),
 )
+
+
+class MilestoneMonitor:
+    """Sigue los hitos de una ejecución. Un hito solo cuenta cuando su condición se cumple en `confirm` lecturas
+    seguidas: una ejecución de evaluación dio por buena la medalla 1 en Petalburg con un Mudkip de nivel 10, por una
+    lectura puntual de banderas que no era real (causa no identificada)."""
+
+    def __init__(self, milestones: tuple[Milestone, ...] = TRAMO_1, confirm: int = 3):
+        self.milestones = milestones
+        self.confirm = confirm
+        self.tracker = Tracker()
+        self.achieved: dict[int, int] = {}  # id -> frame en que se confirmó
+        self._streak: dict[int, int] = {}
+
+    def update(self, state: GameState) -> list[Milestone]:
+        """Procesa un estado; devuelve los hitos confirmados con él."""
+        if state.in_transition:
+            return []
+        self.tracker.update(state)
+        new = []
+        for ms in self.milestones:
+            if ms.id in self.achieved or ms.check is None:
+                continue
+            self._streak[ms.id] = self._streak.get(ms.id, 0) + 1 if ms.check(state, self.tracker) else 0
+            if self._streak[ms.id] >= self.confirm:
+                self.achieved[ms.id] = state.frame
+                new.append(ms)
+        return new

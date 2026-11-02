@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agents.rules.agent import RulesAgent  # noqa: E402
 from emulator.client import MGBAClient  # noqa: E402
-from env.milestones import TRAMO_1, Tracker  # noqa: E402
+from env.milestones import TRAMO_1, MilestoneMonitor  # noqa: E402
 from env.state import flag_diff, read_flags  # noqa: E402
 from env.world import World, load_rom  # noqa: E402
 from scripts.drive import Driver  # noqa: E402
@@ -53,17 +53,16 @@ def main() -> None:
         if not args.no_load:
             emu.load_state(Path(args.savestate).resolve().as_posix())
             emu.step(0, 2)
-        tracker, achieved = Tracker(), set()
+        monitor = MilestoneMonitor()
+        achieved: set[int] = set()
         first_frame: dict[int, int] = {}
         start_frame = emu.frame()
 
         def on_state(state) -> None:
-            tracker.update(state)
-            for ms in TRAMO_1:
-                if ms.id not in achieved and ms.check is not None and ms.check(state, tracker):
-                    achieved.add(ms.id)
-                    first_frame[ms.id] = state.frame - start_frame
-                    print(f"  HITO {ms.id}: {ms.name} (frame {state.frame})", flush=True)
+            for ms in monitor.update(state):
+                achieved.add(ms.id)
+                first_frame[ms.id] = state.frame - start_frame
+                print(f"  HITO {ms.id}: {ms.name} (frame {state.frame})", flush=True)
 
         agent = RulesAgent(d, world, on_state=on_state)
         flags0 = read_flags(emu)

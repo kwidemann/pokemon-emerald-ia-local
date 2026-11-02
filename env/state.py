@@ -41,6 +41,7 @@ class GameState:
     party: list[PartyMon] = field(default_factory=list)
     callback2: int = 0  # gMain.callback2: qué pantalla está activa (ver ram_map.CB2_OVERWORLD)
     flags: bytes = field(default=b"", repr=False)  # banderas de eventos de SaveBlock1 (300 bytes)
+    sane: bool = True  # False si los punteros de SaveBlock1/2 no apuntan a RAM: los datos leídos de ahí son basura
 
     def flag(self, n: int) -> bool:
         """Bandera de evento `n` (p. ej. 0x861 = Pokédex recibida, verificada en vivo)."""
@@ -58,6 +59,8 @@ class GameState:
         Observado en vivo (1 de 6000 pasos aleatorios, al cruzar una puerta). Es un filtro empírico:
         no hay una bandera de transición verificada. Petalburg es `(0,0)` pero nunca en la casilla (0,0).
         """
+        if not self.sane:
+            return True
         return self.map_group == 0 and self.map_num == 0 and self.x == 0 and self.y == 0
 
     def to_dict(self) -> dict:
@@ -163,6 +166,7 @@ def read_state(emu) -> GameState:
         party=party,
         callback2=struct.unpack("<I", cb2)[0],
         flags=flag_bytes,
+        sane=(sb1 >> 24) in (2, 3) and (sb2 >> 24) in (2, 3),
     )
 
 
