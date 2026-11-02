@@ -44,7 +44,13 @@ class Tracker:
     _prev: GameState | None = None
 
     def update(self, state: GameState) -> None:
-        self.maps_visited.add((state.map_group, state.map_num))
+        here = (state.map_group, state.map_num)
+        # Durante un warp el mapa se lee como (0,0) en un paso (ver GameState.in_transition) y Petalburg es (0,0): en
+        # entrenamiento dio el hito 9 en 2 de 99 episodios sin haber salido de Littleroot. (0,0) solo cuenta tras dos
+        # lecturas seguidas.
+        prev = self._prev
+        if here != (0, 0) or (prev is not None and (prev.map_group, prev.map_num) == (0, 0)):
+            self.maps_visited.add(here)
         if state.in_battle and state.battle_type_flags & BATTLE_TYPE_WALLY_TUTORIAL:
             self.wally_tutorial_seen = True
         prev = self._prev

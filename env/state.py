@@ -41,6 +41,7 @@ class GameState:
     party: list[PartyMon] = field(default_factory=list)
     callback2: int = 0  # gMain.callback2: qué pantalla está activa (ver ram_map.CB2_OVERWORLD)
     flags: bytes = field(default=b"", repr=False)  # banderas de eventos de SaveBlock1 (300 bytes)
+    facing: int = 0  # hacia dónde mira el jugador: 1 abajo, 2 arriba, 3 izquierda, 4 derecha (0 = no leído)
     sane: bool = True  # False si los punteros de SaveBlock1/2 no apuntan a RAM: los datos leídos de ahí son basura
 
     def flag(self, n: int) -> bool:
@@ -116,7 +117,7 @@ def parse_party_mon(raw: bytes) -> PartyMon | None:
 
 def read_state(emu) -> GameState:
     """Lee el estado con 2 llamadas al emulador (la segunda depende de los punteros de la primera)."""
-    frame, (ptrs, cb2, party_count, script, in_battle, btf, party_raw) = emu.read_multi(
+    frame, (ptrs, cb2, party_count, script, in_battle, btf, party_raw, facing_raw) = emu.read_multi(
         [
             (m.G_SAVE_BLOCK1_PTR, 8),
             (m.G_MAIN_CALLBACK2, 4),
@@ -125,6 +126,7 @@ def read_state(emu) -> GameState:
             (m.G_MAIN_IN_BATTLE, 1),
             (m.G_BATTLE_TYPE_FLAGS, 4),
             (m.G_PLAYER_PARTY, m.POKEMON_SIZE * m.PARTY_MAX),
+            (m.G_PLAYER_FACING, 1),
         ]
     )
     sb1, sb2 = struct.unpack("<II", ptrs)
@@ -160,6 +162,7 @@ def read_state(emu) -> GameState:
         script_active=script[0] != m.SCRIPT_CONTEXT_DISABLED,
         in_battle=bool(in_battle[0] & m.IN_BATTLE_MASK),
         battle_type_flags=struct.unpack("<I", btf)[0],
+        facing=facing_raw[0] & 0xF,
         money=money ^ key,
         badges=badges,
         player_name=_decode_name(name_raw),

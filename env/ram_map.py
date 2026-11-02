@@ -88,3 +88,8 @@ SUBSTRUCT_ORDER = (
     (1, 2, 0, 3), (1, 3, 0, 2), (2, 1, 0, 3), (3, 1, 0, 2), (2, 3, 0, 1), (3, 2, 0, 1),
     (1, 2, 3, 0), (1, 3, 2, 0), (2, 1, 3, 0), (3, 1, 2, 0), (2, 3, 1, 0), (3, 2, 1, 0),
 )
+
+# Hacia dónde mira el jugador: gObjectEvents[0].facingDirection & 0xF (1 abajo, 2 arriba, 3 izquierda, 4 derecha).
+# La base de gObjectEvents (0x02037350) y el offset 0x18 los usa env/mapdata.py; que el objeto 0 sea el jugador se
+# comprueba en vivo antes de fiarse (ver specs.md, 7.6).
+G_PLAYER_FACING = 0x02037350 + 0x18

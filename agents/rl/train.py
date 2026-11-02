@@ -6,7 +6,7 @@ emulador en el puerto 8888.
 
 Uso:
     uv run python agents/rl/train.py --savestate runs/lab_mudkip.ss0 --total-steps 100000
-    uv run python agents/rl/train.py --savestate runs/lab_mudkip.ss0 --n-envs 4 --base-port 8888 --total-steps 500000
+    uv run python agents/rl/train.py --savestate runs/lab_mudkip.ss0 runs/ruta101_sur.ss0 --n-envs 4 --base-port 8888 --total-steps 500000
     uv run python agents/rl/train.py --evaluate runs/rl/<corrida>/model.zip --episodes 10
 
 Salidas en `runs/rl/<corrida>/` (ignorado por git): `model.zip`, checkpoints, curvas de TensorBoard (`tb/`) y
@@ -16,6 +16,8 @@ Salidas en `runs/rl/<corrida>/` (ignorado por git): `model.zip`, checkpoints, cu
 from __future__ import annotations
 
 import argparse
+import json
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -28,17 +30,24 @@ from stable_baselines3 import PPO  # noqa: E402
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback  # noqa: E402
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv  # noqa: E402
 
-from env.pokemon_env import PokemonEmeraldEnv  # noqa: E402
+from env.milestones import TRAMO_1  # noqa: E402
+from env.pokemon_env import OBS_SIZE, PokemonEmeraldEnv  # noqa: E402
 
 FINAL_MILESTONE = 16
 
 
-def make_env(savestate: str, port: int, max_steps: int, new_tile_bonus: float) -> PokemonEmeraldEnv:
-    return PokemonEmeraldEnv(savestate, port=port, max_steps=max_steps, new_tile_bonus=new_tile_bonus)
+def make_env(savestate: str, port: int, max_steps: int, new_tile_bonus: float, penalties: dict) -> PokemonEmeraldEnv:
+    return PokemonEmeraldEnv(savestate, port=port, max_steps=max_steps, new_tile_bonus=new_tile_bonus, **penalties)
 
 
-def make_vec_env(savestate: str, n_envs: int, base_port: int, max_steps: int, new_tile_bonus: float):
-    fns = [partial(make_env, savestate, base_port + i, max_steps, new_tile_bonus) for i in range(n_envs)]
+def make_vec_env(
+    savestates: list[str], n_envs: int, base_port: int, max_steps: int, new_tile_bonus: float, penalties: dict | None = None
+):
+    """El entorno i usa el savestate i % len(savestates): con varios, algunos entornos parten más cerca del primer hito."""
+    fns = [
+        partial(make_env, savestates[i % len(savestates)], base_port + i, max_steps, new_tile_bonus, penalties or {})
+        for i in range(n_envs)
+    ]
     return DummyVecEnv(fns) if n_envs == 1 else SubprocVecEnv(fns)
 
 
@@ -59,17 +68,49 @@ class MilestoneLogger(BaseCallback):
             ms = info.get("milestones", [])
             self.logger.record("milestones/count", len(ms))
             self.logger.record("milestones/final_reached", float(FINAL_MILESTONE in ms))
+            counters = info.get("contadores", {})
+            for name, value in counters.items():
+                self.logger.record(f"contadores/{name}", value)
             line = (
                 f"episodio {self.episodes} pasos_totales={self.num_timesteps} hitos={ms} "
-                f"reloj={time.time() - self.t0:.0f}s"
+                f"reloj={time.time() - self.t0:.0f}s contadores={json.dumps(counters, ensure_ascii=False)}"
             )
             with self.log_path.open("a", encoding="utf-8") as f:
                 f.write(line + "\n")
         return True
 
 
+def save_config(out: Path, args) -> None:
+    """Deja junto al modelo todo lo que define la corrida: recompensas, entorno y versión del código."""
+
+    def git(*a: str) -> str:
+        try:
+            return subprocess.run(["git", *a], capture_output=True, text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+
+    config = {
+        "args": vars(args),
+        "recompensas": {
+            "hitos": {m.id: {"nombre": m.name, "recompensa": m.reward} for m in TRAMO_1},
+            "bonus_casilla_nueva": args.new_tile_bonus,
+            "penalizaciones": {
+                "choques": args.bump_penalty,
+                "quieto": args.idle_penalty,
+                "bucles": args.loop_penalty,
+                "menu": args.menu_penalty,
+            },
+            "lecturas_para_confirmar_un_hito": 3,
+        },
+        "observacion": f"vector de {OBS_SIZE} valores (ver env/pokemon_env.py, encode_observation)",
+        "git": {"commit": git("rev-parse", "HEAD"), "cambios_sin_commit": bool(git("status", "--porcelain"))},
+        "fecha": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    (out / "config.json").write_text(json.dumps(config, indent=1, ensure_ascii=False), encoding="utf-8")
+
+
 def evaluate(model_path: Path, args) -> None:
-    env = make_vec_env(args.savestate, 1, args.base_port, args.max_steps, 0.0)
+    env = make_vec_env(args.savestate[:1], 1, args.base_port, args.max_steps, 0.0)
     model = PPO.load(model_path, device="cpu")
     ok = 0
     for ep in range(args.episodes):
@@ -88,12 +129,16 @@ def evaluate(model_path: Path, args) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--savestate", default="runs/lab_mudkip.ss0")
+    parser.add_argument("--savestate", nargs="+", default=["runs/lab_mudkip.ss0"], help="uno o varios; el entorno i usa el i-ésimo (en rotación)")
     parser.add_argument("--n-envs", type=int, default=1, help="emuladores en paralelo (puertos consecutivos)")
     parser.add_argument("--base-port", type=int, default=8888)
     parser.add_argument("--total-steps", type=int, default=100_000)
     parser.add_argument("--max-steps", type=int, default=2000, help="acciones por episodio antes de truncar")
     parser.add_argument("--new-tile-bonus", type=float, default=0.0, help="premio por casilla nueva (0 = solo hitos)")
+    parser.add_argument("--bump-penalty", type=float, default=0.0, help="castigo por chocar (0 = desactivado)")
+    parser.add_argument("--idle-penalty", type=float, default=0.0, help="castigo por quedarse quieto (0 = desactivado)")
+    parser.add_argument("--loop-penalty", type=float, default=0.0, help="castigo por dar vueltas (0 = desactivado)")
+    parser.add_argument("--menu-penalty", type=float, default=0.0, help="castigo por paso en un menú (0 = desactivado)")
     parser.add_argument("--n-steps", type=int, default=512, help="pasos por entorno antes de cada actualización")
     parser.add_argument("--ent-coef", type=float, default=0.01, help="premia explorar (más alto = más aleatorio)")
     parser.add_argument("--name", help="nombre de la corrida (por defecto, la fecha)")
@@ -109,7 +154,14 @@ def main() -> None:
 
     out = Path("runs/rl") / (args.name or datetime.now().strftime("ppo_%Y%m%d_%H%M%S"))
     out.mkdir(parents=True, exist_ok=True)
-    vec = make_vec_env(args.savestate, args.n_envs, args.base_port, args.max_steps, args.new_tile_bonus)
+    save_config(out, args)
+    penalties = {
+        "bump_penalty": args.bump_penalty,
+        "idle_penalty": args.idle_penalty,
+        "loop_penalty": args.loop_penalty,
+        "menu_penalty": args.menu_penalty,
+    }
+    vec = make_vec_env(args.savestate, args.n_envs, args.base_port, args.max_steps, args.new_tile_bonus, penalties)
     model = PPO(
         "MlpPolicy",
         vec,
