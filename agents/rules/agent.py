@@ -375,8 +375,40 @@ class RulesAgent:
         finally:
             self._healing = False
 
-    def catch(self, map_id: MapId, party_size: int = 2, max_iterations: int = 3000) -> bool:
-        """Camina por la hierba de `map_id` y lanza Poké Balls en los combates salvajes hasta tener `party_size` Pokémon."""
+    MART_CLERK_GRAPHICS_ID = 83  # dependiente de las tiendas (visto en (2,4) y (11,7))
+    POKE_BALL_PRICE = 200
+
+    def buy_balls(self, mart: MapId, quantity: int = 8) -> bool:
+        """Compra Poké Balls en la tienda `mart` (la Poké Ball es la primera de la lista, ₽200). Pasos y textos vistos
+        en vivo en (11,7): hablar -> menú COMPRAR/VENDER/SALIR -> A en COMPRAR -> A en Poké Ball -> ARRIBA suma 1 a la
+        cantidad -> A -> SÍ -> "Here you go!". Se comprueba con el dinero (RAM): False si no bajó."""
+        s = self.d.state()
+        quantity = min(quantity, s.money // self.POKE_BALL_PRICE)
+        if quantity <= 0:
+            self.say("  sin dinero para Poké Balls")
+            return False
+        before = s.money
+        if not self.talk_to(mart, self.MART_CLERK_GRAPHICS_ID, settle_after=False):
+            return False
+        self.d.emu.step(0, 120)  # saludo del dependiente hasta que sale el menú
+        self.d.tap(Key.A, wait=60)  # COMPRAR
+        self.d.tap(Key.A, wait=60)  # Poké Ball (primera de la lista)
+        for _ in range(quantity - 1):
+            self.d.tap(Key.UP, wait=12)
+        self.d.tap(Key.A, wait=60)  # cantidad
+        self.d.tap(Key.A, wait=90)  # SÍ (cursor inicial)
+        for _ in range(6):  # "Here you go!", lista, menú y despedida: B hasta quedar libre
+            self.d.tap(Key.B, wait=40)
+        self.settle()
+        now = self.d.state().money
+        self.say(f"  compra de {quantity} Poké Balls: dinero {before} -> {now}")
+        return now < before
+
+    def catch(self, map_id: MapId, party_size: int = 2, max_iterations: int = 3000, mart: MapId | None = None) -> bool:
+        """Camina por la hierba de `map_id` y lanza Poké Balls en los combates salvajes hasta tener `party_size` Pokémon.
+        Con `mart`, antes compra Poké Balls allí (la bolsa inicial, de 5, no siempre alcanza)."""
+        if mart is not None and not self.buy_balls(mart):
+            self.say("  no se pudieron comprar Poké Balls; se sigue con las que hay")
         if not self.goto(map_id):
             return False
         self.catch_until = party_size
@@ -477,7 +509,9 @@ class RulesAgent:
             self.d.emu.step(0, 60)
         self.say("  settle: no se quedó libre")
 
-    def talk_to(self, map_id: MapId, graphics_id: int, max_iterations: int = 400, min_hp: float = 0.0) -> bool:
+    def talk_to(
+        self, map_id: MapId, graphics_id: int, max_iterations: int = 400, min_hp: float = 0.0, settle_after: bool = True
+    ) -> bool:
         """Va al mapa, camina hasta el NPC con ese gráfico y le habla (A). Los entrenadores también cuentan.
 
         `min_hp`: si algún Pokémon está por debajo de esta fracción de HP se cura antes (retos: rival, líder)."""
@@ -516,6 +550,8 @@ class RulesAgent:
                 self.d.move(spots[(p.x, p.y)], 1)  # solo gira hacia el NPC o el mostrador
                 self.d.tap(Key.A, wait=40)
                 self.say(f"  habló con el NPC {graphics_id} en ({nx},{ny})")
+                if not settle_after:  # el llamador sigue la conversación (tienda)
+                    return True
                 self._text_key = Key.A  # en la conversación buscada se responde SÍ (enfermera, etc.)
                 try:
                     self.settle()

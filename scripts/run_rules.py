@@ -29,7 +29,7 @@ TRAMO1_GOALS = [
     "0,0",  # Petalburg (hito 9)
     "talk:8,1:129",  # Norman y Wally (hito 10)
     "0,3",  # Bosque Petalburgo (hito 11) y Rustboro (hito 12)
-    "catch:0,19:2",  # segundo Pokémon (hito 13)
+    "catch:0,19:2:11,7",  # compra Poké Balls en la tienda de Rustboro y captura el segundo Pokémon (hito 13)
     "talk:11,3:125:0.95",  # gimnasio y Roxanne (hitos 14, 15, 16)
 ]
 
@@ -74,9 +74,13 @@ def main() -> None:
                 ok = agent.talk_to(
                     tuple(int(v) for v in parts[1].split(",")), int(parts[2]), min_hp=float(parts[3]) if len(parts) > 3 else 0.0
                 )
-            elif goal.startswith("catch:"):  # catch:grupo,número:tamaño_del_equipo
-                _, map_txt, size = goal.split(":")
-                ok = agent.catch(tuple(int(v) for v in map_txt.split(",")), int(size))
+            elif goal.startswith("catch:"):  # catch:grupo,número:tamaño_del_equipo[:tienda grupo,número]
+                _, map_txt, size, *mart = goal.split(":")
+                ok = agent.catch(
+                    tuple(int(v) for v in map_txt.split(",")),
+                    int(size),
+                    mart=tuple(int(v) for v in mart[0].split(",")) if mart else None,
+                )
             elif goal.startswith("grind:"):  # grind:grupo,número:nivel
                 _, map_txt, lvl = goal.split(":")
                 ok = agent.grind(tuple(int(v) for v in map_txt.split(",")), int(lvl))

@@ -42,8 +42,10 @@ def run_goal(agent: RulesAgent, goal: str) -> bool:
         parts = goal.split(":")
         return agent.talk_to(tuple(int(v) for v in parts[1].split(",")), int(parts[2]), min_hp=float(parts[3]) if len(parts) > 3 else 0.0)
     if goal.startswith("catch:"):
-        _, m, size = goal.split(":")
-        return agent.catch(tuple(int(v) for v in m.split(",")), int(size))
+        _, m, size, *mart = goal.split(":")
+        return agent.catch(
+            tuple(int(v) for v in m.split(",")), int(size), mart=tuple(int(v) for v in mart[0].split(",")) if mart else None
+        )
     if goal.startswith("grind:"):
         _, m, lvl = goal.split(":")
         return agent.grind(tuple(int(v) for v in m.split(",")), int(lvl))
