@@ -69,6 +69,9 @@ Registro cronológico de lo que se hizo, lo que se decidió y lo que se descubri
 ### Fase 5: RL con PPO (arranque)
 - **Hecho:** `env/pokemon_env.py` usa `MilestoneMonitor` (3 lecturas seguidas por hito); `emulator/server.lua` lee el puerto de `POKEMON_IA_PORT` para poder abrir varias instancias de mGBA. El entorno se probó sin emulador con estados falsos.
 - **Sin verificar en vivo:** el entorno con el emulador y que `os.getenv` exista en el Lua de mGBA.
+- **Decidido:** Stable-Baselines3 con PyTorch en CPU (`uv sync --extra rl`); `agents/rl/train.py` escrito y probado con un emulador falso.
+- **Probado en vivo:** lancé mGBA desde la terminal con una copia de la ROM, cargué `server.lua` y puse el avance rápido sin límite automatizando los menús (UI Automation); el puerto de `POKEMON_IA_PORT` funciona (8899); ~3300 frames/s; entorno y PPO funcionan con 1 emulador (~51 pasos/s). El filtro de ESC y los diálogos modales requieren cuidado (ver specs 7.6).
+- **Lanzador de N emuladores:** `scripts/launch_emulators.py` y `emulator/setup_instance.ps1` abren, cargan el script y aceleran N instancias automáticamente. Costó tres arreglos (primera letra perdida con `SendKeys`, UI Automation colgado con el diálogo abierto, precedencia de la coma en PowerShell). Con 4 instancias PPO va a ~76 pasos/s (1,5 veces una sola): el límite parece ser la CPU.
 - **Plan acordado:** entrenar con varias instancias en paralelo (una por puerto, `SubprocVecEnv`). Falta resolver cómo cargar el script sin hacerlo a mano en cada ventana (`mGBA.exe` no acepta `--script`).
 - **Evaluación del agente de reglas con compra de Poké Balls:** 10 de 10 hasta la medalla 1 (incluida arriba, en la Fase 4).
 
