@@ -39,6 +39,17 @@ class GameState:
     badges: int  # cantidad de medallas
     player_name: str
     party: list[PartyMon] = field(default_factory=list)
+    callback2: int = 0  # gMain.callback2: qué pantalla está activa (ver ram_map.CB2_OVERWORLD)
+    flags: bytes = field(default=b"", repr=False)  # banderas de eventos de SaveBlock1 (300 bytes)
+
+    def flag(self, n: int) -> bool:
+        """Bandera de evento `n` (p. ej. 0x861 = Pokédex recibida, verificada en vivo)."""
+        return bool(self.flags[n >> 3] >> (n & 7) & 1) if len(self.flags) > n >> 3 else False
+
+    @property
+    def in_overworld(self) -> bool:
+        """True si se controla al personaje en el mundo (no hay menú ni batalla abierta)."""
+        return (self.callback2 & ~1) == (m.CB2_OVERWORLD & ~1)
 
     @property
     def in_transition(self) -> bool:
@@ -50,7 +61,9 @@ class GameState:
         return self.map_group == 0 and self.map_num == 0 and self.x == 0 and self.y == 0
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d.pop("flags")  # bytes: no se serializa a JSON
+        return d
 
 
 # Tabla de caracteres de Gen III: solo letras y dígitos (suficiente para el nombre del jugador).
@@ -100,9 +113,10 @@ def parse_party_mon(raw: bytes) -> PartyMon | None:
 
 def read_state(emu) -> GameState:
     """Lee el estado con 2 llamadas al emulador (la segunda depende de los punteros de la primera)."""
-    frame, (ptrs, party_count, script, in_battle, btf, party_raw) = emu.read_multi(
+    frame, (ptrs, cb2, party_count, script, in_battle, btf, party_raw) = emu.read_multi(
         [
             (m.G_SAVE_BLOCK1_PTR, 8),
+            (m.G_MAIN_CALLBACK2, 4),
             (m.G_PLAYER_PARTY_COUNT, 1),
             (m.S_GLOBAL_SCRIPT_CONTEXT_STATUS, 1),
             (m.G_MAIN_IN_BATTLE, 1),
@@ -113,23 +127,19 @@ def read_state(emu) -> GameState:
     sb1, sb2 = struct.unpack("<II", ptrs)
 
     # Medallas: flags 0x867..0x86E dentro del arreglo de flags de SaveBlock1.
-    first_byte = m.FLAG_BADGE01_GET >> 3
     _, (pos, key_raw, money_raw, name_raw, flag_bytes) = emu.read_multi(
         [
             (sb1 + m.SB1_POS, 6),
             (sb2 + m.SB2_ENCRYPTION_KEY, 4),
             (sb1 + m.SB1_MONEY, 4),
             (sb2 + m.SB2_PLAYER_NAME, 8),
-            (sb1 + m.SB1_FLAGS + first_byte, 2),
+            (sb1 + m.SB1_FLAGS, 300),
         ]
     )
     x, y, map_group, map_num = struct.unpack("<hhbb", pos)
     (key,) = struct.unpack("<I", key_raw)
     (money,) = struct.unpack("<I", money_raw)
-    badges = sum(
-        (flag_bytes[((m.FLAG_BADGE01_GET + i) >> 3) - first_byte] >> ((m.FLAG_BADGE01_GET + i) & 7)) & 1
-        for i in range(m.NUM_BADGES)
-    )
+    badges = sum((flag_bytes[(m.FLAG_BADGE01_GET + i) >> 3] >> ((m.FLAG_BADGE01_GET + i) & 7)) & 1 for i in range(m.NUM_BADGES))
 
     count = min(party_count[0], m.PARTY_MAX)
     party = [
@@ -151,4 +161,24 @@ def read_state(emu) -> GameState:
         badges=badges,
         player_name=_decode_name(name_raw),
         party=party,
+        callback2=struct.unpack("<I", cb2)[0],
+        flags=flag_bytes,
     )
+
+
+def read_flags(emu) -> bytes:
+    """Los 300 bytes de banderas de eventos de SaveBlock1 (bandera N: byte N>>3, bit N&7)."""
+    (ptrs,) = emu.read_multi([(m.G_SAVE_BLOCK1_PTR, 4)])[1]
+    (sb1,) = struct.unpack("<I", ptrs)
+    return emu.read_multi([(sb1 + m.SB1_FLAGS, 300)])[1][0]
+
+
+def flag_diff(before: bytes, after: bytes) -> tuple[list[int], list[int]]:
+    """Banderas activadas y desactivadas entre dos lecturas de `read_flags`."""
+    on, off = [], []
+    for i, (a, b) in enumerate(zip(before, after)):
+        for bit in range(8):
+            was, now = (a >> bit) & 1, (b >> bit) & 1
+            if was != now:
+                (on if now else off).append(i * 8 + bit)
+    return on, off

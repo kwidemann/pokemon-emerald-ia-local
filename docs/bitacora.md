@@ -42,6 +42,12 @@ Registro cronológico de lo que se hizo, lo que se decidió y lo que se descubri
 - **Sin verificar:** el arranque sin `.sav` previo; la reproducibilidad exacta.
 - **Pendiente:** verificar los detectores de hitos; paralelizar emuladores.
 
+### Fase 4: agente de reglas
+- **Hecho:** `env/mapdata.py` (colisiones, NPC, warps y conexiones desde la RAM, BFS, hierba y desniveles por comportamiento de casilla), `env/world.py` (grafo de 518 mapas desde la ROM con zonas conexas, `route`, NPC y centros Pokémon), `env/battle_data.py` (movimientos y tipos desde la ROM), `agents/rules/agent.py` y `scripts/run_rules.py`. `GameState` ganó `callback2`, `in_overworld` y `flags` (banderas de eventos).
+- **Verificado:** el agente, desde el savestate del laboratorio, llegó solo a Oldale, venció al rival en la Ruta 103, recibió la Pokédex (flag `0x861`), llegó a Petalburg, activó la escena de Wally (flags de batalla `0x204`), cruzó el Bosque Petalburgo y llegó a Rustboro. Se curó en dos Centros Pokémon. Datos de la ROM contrastados con el juego.
+- **Problemas:** un cuelgue del juego sin causa conocida en un combate de entrenador (se perdió ese progreso); el agente aún no llega a la medalla 1.
+- **Pendiente:** hitos 13 a 16; investigar el cuelgue (añadir un comando para leer registros de la CPU); repetir ejecuciones para medir la tasa de éxito.
+
 ### Control de versiones y organización
 - **Hecho:** `git init` con rama `main`. Se creó esta bitácora y se añadió a `specs.md` la sección de hitos propuestos. A pedido del usuario se hizo el primer commit del proyecto (el hash se ve con `git log`).
 - **Publicación en GitHub:** el equipo no tiene `gh` instalado, así que el repositorio público lo crea el usuario en GitHub y después se hace el `push` desde aquí.

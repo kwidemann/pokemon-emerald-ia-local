@@ -29,6 +29,10 @@ G_ENEMY_PARTY_COUNT = 0x020244EA  # -- [SYM]: u8
 G_ENEMY_PARTY = 0x02024744  # -- [SYM]
 
 G_MAIN_CALLBACK2 = 0x030022C4  # OK [SYM]+[M]: gMain + 0x04 (cambia según la pantalla/estado del juego)
+# Valores de gMain.callback2 observados en vivo (con el bit Thumb). 0x08085E5D = mundo abierto (camión, casas,
+# laboratorio); otros valores = menús, batalla, pantalla de nombre (0x080E4F59), reloj (0x08134C9D), etc.
+CB2_OVERWORLD = 0x08085E5D
+
 G_MAIN_IN_BATTLE = 0x030026F9  # OK [M]: byte gMain+0x439; bit 0x02 = inBattle (True/False al empezar/terminar la 1ª batalla)
 IN_BATTLE_MASK = 0x02
 

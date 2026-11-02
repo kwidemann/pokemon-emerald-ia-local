@@ -176,6 +176,22 @@ pokemon-ia/
 - **Sin verificar:** el caso de **no haber `.sav`** (menú con NUEVO JUEGO en primer lugar): el script lo prevé (solo pulsa ABAJO si ve CONTINUE) pero no se probó. Tampoco se probó con otro ritmo de emulación.
 - **Límite de reproducibilidad:** entre comandos el emulador sigue corriendo a velocidad libre, así que el RNG cambia y cada ejecución da un Mudkip distinto (por ejemplo 20 HP en vez de 21) y una batalla distinta. El **flujo** es reproducible, los **valores** no. Esto también afecta a los pasos del entorno: unos frames de más pasan entre comandos. Para determinismo estricto habría que pausar la emulación entre comandos (no hay una llamada verificada para eso).
 
+### 7.5 Estado de la Fase 4: agente de reglas (2026-11-01)
+
+Primer enfoque (reglas explícitas, sin aprendizaje). Código en `agents/rules/agent.py`, lanzador `scripts/run_rules.py`, y tres módulos de apoyo reutilizables por los demás enfoques: `env/mapdata.py` (mapa y colisiones desde la RAM), `env/world.py` (grafo de mapas desde la ROM) y `env/battle_data.py` (movimientos y tipos desde la ROM).
+
+- **Cómo decide (prioridad en cada iteración):** batalla abierta, pantalla que no es el mundo (se sale con B), diálogo (B por defecto), curarse si algún Pokémon baja del 50 % de HP, y por último navegar hacia el mapa objetivo.
+- **Navegación:** el grafo de la ROM da el camino entre mapas (warps y conexiones) y `find_path` (BFS sobre las colisiones leídas de la RAM) lleva al jugador hasta la salida. El grafo distingue **zonas conexas** de cada mapa (calculadas con la cuadrícula de la ROM), así la Ruta 104 se recorre como sur, Bosque Petalburgo y norte. Las puertas de edificio tienen colisión: se llega a la casilla de al lado y se empuja. Las alfombras de salida se pisan y se pulsa la dirección que activa el warp.
+- **Combate:** elige el movimiento con más daño esperado (poder x STAB x efectividad x precisión), con los datos de la ROM. Antes de aceptar lleva el cursor a LUCHAR y al movimiento (el cursor recuerda la última opción; una vez eligió HUIR y se quedó en bucle).
+- **Otras rutinas:** `talk_to` (camina hasta un NPC por su sprite y le habla, también a través de un mostrador), `heal` (Centro Pokémon más cercano, enfermera con el sprite 58), `grind` (camina por la hierba alta hasta subir de nivel; detecta hierba con el comportamiento de casilla de los tilesets).
+- **Verificado en vivo (desde `lab_mudkip.ss0`):** Oldale (hito 6), rival vencido en la Ruta 103 con flags `0xC` (hito 7), Pokédex (flag `0x861`, hito 8), Petalburg (hito 9), tutorial de Wally con flags `0x204` (hito 10), cruce del Bosque Petalburgo y llegada a Rustboro (hito 12), curación en los Centros Pokémon de Oldale y de Rustboro. Con entrenamiento el Mudkip llegó a nivel 12. El grafo de la ROM tiene 518 mapas y 18 mapas con enfermera. Los datos de movimientos de la ROM (Placaje 35/95/35 PP, Mudkip de agua, Geodude de roca y tierra, agua contra roca y tierra x4) coinciden con el juego.
+- **Descubrimientos:** tras hablar con un NPC, una `A` de más lo vuelve a "hablar" y el diálogo se repite sin fin (por eso B). El cursor del menú de acciones recuerda HUIR. Perder contra el rival en la Ruta 103 con el Mudkip a nivel 5-7 es frecuente y manda a casa.
+- **Problemas abiertos:**
+  1. **Cuelgue del juego:** en un combate de entrenador de la Ruta 104 norte el juego dejó de leer botones (`gMain.heldKeysRaw` fijo, el registro `REG_KEYINPUT` de mGBA sí respondía y el contador de vblank seguía), así que quedó atascado en el menú de movimientos. Causa no identificada y no reproducida en el segundo intento; se perdió ese progreso al recargar el savestate. Sospechas sin comprobar: un cuelgue del propio juego o una interacción con el avance rápido.
+  2. El agente **no completó el Tramo 1**: faltan los hitos 13 (captura), 14 (evolución a Marshtomp, que además exige no cancelar con B la pantalla de evolución) y 15 y 16 (Roxanne).
+  3. El entrenamiento y la curación son básicos: tras perder, el agente puede agotar sus iteraciones sin avanzar; no hay lógica para huir de combates salvajes con poca vida.
+  4. El combate no se probó contra ataques que mejoran o empeoran estadísticas, ni con objetos o cambios de Pokémon.
+
 ## 8. Métricas de comparación
 
 Pasos (frames) hasta cada hito, tasa de éxito sobre N semillas/savestates, tiempo de reloj, uso de VRAM/RAM, y tasa de respuestas inválidas del supervisor.
@@ -204,16 +220,16 @@ Cada hito debe ser **detectable desde la RAM** (mapa, bandera, cantidad de medal
 | 3 | Starter conseguido | `party_count == 1` | Verificado |
 | 4 | Primera batalla ganada (Ruta 101) | `in_battle` vuelve a `False` con HP > 0 | Verificado |
 | 5 | Entrar al laboratorio de Birch | Mapa `(1,4)` | Hecho |
-| 6 | Llegar a Oldale Town | Mapa nuevo; se anota su ID al pisarlo | Pendiente |
-| 7 | Llegar al final de la Ruta 103 y pelear con el rival | `gBattleTypeFlags` con el bit de entrenador, aún sin ver | Pendiente |
-| 8 | Volver al laboratorio y recibir la Pokédex y Poké Balls **[memoria]** | Objeto nuevo en la bolsa o bandera de Pokédex (hay que leerla) | Pendiente |
-| 9 | Llegar a Petalburg City por la Ruta 102 | Mapa nuevo | Pendiente |
-| 10 | Ayudar a Wally a capturar a su Pokémon **[memoria]** | Su escena termina y `script_active` vuelve a `False` en Petalburg | Pendiente |
-| 11 | Cruzar el Bosque Petalburgo y vencer al recluta de Team Aqua **[memoria]** | Mapa del bosque y un combate de entrenador ganado | Pendiente |
-| 12 | Llegar a Rustboro City por la Ruta 104 | Mapa nuevo | Pendiente |
+| 6 | Llegar a Oldale Town | Mapa `(0,10)` | Verificado (agente de reglas) |
+| 7 | Vencer al rival en la Ruta 103 | Mapa `(0,18)` y combate de entrenador (`gBattleTypeFlags = 0xC`) ganado | Verificado |
+| 8 | Volver al laboratorio y recibir la Pokédex | Bandera `0x861` | Verificado (la bandera se activó al hablar con Birch) |
+| 9 | Llegar a Petalburg City por la Ruta 102 | Mapa `(0,0)` | Verificado |
+| 10 | Escena de captura de Wally (hablar con Norman en el gimnasio de Petalburg) | `gBattleTypeFlags & 0x200` durante el combate (valió `0x204`) | Verificado |
+| 11 | Cruzar el Bosque Petalburgo y vencer a un entrenador | Mapa `(24,11)` y combate de entrenador ganado | Se cruzó el bosque y hubo combates; falta confirmar cuál fue el recluta de Aqua |
+| 12 | Llegar a Rustboro City por la Ruta 104 | Mapa `(0,3)` | Verificado |
 | 13 | Capturar un segundo Pokémon | `party_count >= 2` | Pendiente |
 | 14 | Starter a nivel 16: Mudkip evoluciona a Marshtomp **[memoria]** | La especie interna pasa de 283 a 284 | Pendiente |
-| 15 | Entrar al gimnasio de Rustboro | Mapa del gimnasio | Pendiente |
+| 15 | Entrar al gimnasio de Rustboro | Mapa `(11,3)` (del grafo de la ROM) | Pendiente |
 | 16 | Vencer a Roxanne | Bandera `0x867` y 1 medalla | Pendiente |
 
 Roxanne usa, de memoria, Geodude nivel 14, Geodude nivel 14 y Nosepass nivel 15 (tipo Roca); no está comprobado.

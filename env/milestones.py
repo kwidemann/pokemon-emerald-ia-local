@@ -15,17 +15,21 @@ from dataclasses import dataclass, field
 
 from env.state import GameState
 
-BATTLE_TYPE_TRAINER = 0x08  # bit de pokeemerald; aún sin ver en una batalla real
+BATTLE_TYPE_TRAINER = 0x08  # verificado en vivo: el combate con el rival dio flags 0xC = IS_MASTER | TRAINER
+BATTLE_TYPE_WALLY_TUTORIAL = 0x200  # visto en vivo: la escena de Wally dio flags 0x204 (el bit exacto es de memoria)
+WOODS = (24, 11)  # Bosque Petalburgo (del grafo de la ROM; se cruzó en vivo)
 
-# (grupo, número) de mapa. Verificados: LAB, LITTLEROOT, ROUTE_101. El resto, inferidos.
+# (grupo, número) de mapa. Verificados en vivo: LAB, LITTLEROOT, ROUTE_101, OLDALE, ROUTE_103, PETALBURG, RUSTBORO.
 LAB = (1, 4)
 LITTLEROOT = (0, 9)
 ROUTE_101 = (0, 16)
-OLDALE = (0, 10)  # inferido
-ROUTE_103 = (0, 18)  # inferido
-PETALBURG = (0, 0)  # inferido
-RUSTBORO = (0, 3)  # inferido
+OLDALE = (0, 10)  # verificado en vivo (hito 6)
+ROUTE_103 = (0, 18)  # verificado en vivo (hito 7)
+PETALBURG = (0, 0)  # verificado en vivo (hito 9)
+RUSTBORO = (0, 3)  # verificado en vivo (hito 12)
+RUSTBORO_GYM = (11, 3)  # del grafo de la ROM (3 entrenadores y un líder); sin pisar aún
 
+FLAG_SYS_POKEDEX_GET = 0x861  # verificada en vivo: se activó al hablar con Birch tras vencer al rival
 SPECIES_MARSHTOMP = 284  # índice interno de Gen III; Mudkip = 283 (verificado en vivo)
 
 
@@ -35,15 +39,20 @@ class Tracker:
 
     maps_visited: set[tuple[int, int]] = field(default_factory=set)
     trainer_battles_won: int = 0
+    trainer_wins_on: set[tuple[int, int]] = field(default_factory=set)  # mapas donde se ganó a un entrenador
+    wally_tutorial_seen: bool = False
     _prev: GameState | None = None
 
     def update(self, state: GameState) -> None:
         self.maps_visited.add((state.map_group, state.map_num))
+        if state.in_battle and state.battle_type_flags & BATTLE_TYPE_WALLY_TUTORIAL:
+            self.wally_tutorial_seen = True
         prev = self._prev
         if prev is not None and prev.in_battle and not state.in_battle:
             was_trainer = bool(prev.battle_type_flags & BATTLE_TYPE_TRAINER)
             if was_trainer and any(mon.hp > 0 for mon in state.party):
                 self.trainer_battles_won += 1
+                self.trainer_wins_on.add((prev.map_group, prev.map_num))
         self._prev = state
 
 
@@ -66,19 +75,19 @@ def _visited(map_id: tuple[int, int]) -> Check:
 TRAMO_1: tuple[Milestone, ...] = (
     Milestone(3, "starter conseguido", 1.0, lambda s, t: len(s.party) >= 1, True),
     Milestone(5, "laboratorio de Birch", 1.0, _visited(LAB), True),
-    Milestone(6, "Oldale Town", 1.0, _visited(OLDALE), False),
+    Milestone(6, "Oldale Town", 1.0, _visited(OLDALE), True),
     Milestone(
         7, "rival vencido en la Ruta 103", 1.0,
-        lambda s, t: ROUTE_103 in t.maps_visited and t.trainer_battles_won >= 1, False,
+        lambda s, t: ROUTE_103 in t.maps_visited and t.trainer_battles_won >= 1, True,
     ),
-    Milestone(8, "Pokédex y Poké Balls", 1.0, None, False),
-    Milestone(9, "Petalburg City", 1.0, _visited(PETALBURG), False),
-    Milestone(10, "Wally capturado", 1.0, None, False),
-    Milestone(11, "recluta de Team Aqua vencido", 1.0, None, False),
-    Milestone(12, "Rustboro City", 1.0, _visited(RUSTBORO), False),
+    Milestone(8, "Pokédex recibida", 1.0, lambda s, t: s.flag(FLAG_SYS_POKEDEX_GET), True),
+    Milestone(9, "Petalburg City", 1.0, _visited(PETALBURG), True),
+    Milestone(10, "tutorial de captura de Wally", 1.0, lambda s, t: t.wally_tutorial_seen, True),
+    Milestone(11, "entrenador vencido en el Bosque Petalburgo", 1.0, lambda s, t: WOODS in t.trainer_wins_on, False),
+    Milestone(12, "Rustboro City", 1.0, _visited(RUSTBORO), True),
     Milestone(13, "segundo Pokémon capturado", 1.0, lambda s, t: len(s.party) >= 2, False),
     Milestone(14, "starter evoluciona a Marshtomp", 1.0,
               lambda s, t: any(mon.species == SPECIES_MARSHTOMP for mon in s.party), False),
-    Milestone(15, "gimnasio de Rustboro", 1.0, None, False),
+    Milestone(15, "gimnasio de Rustboro", 1.0, _visited(RUSTBORO_GYM), False),
     Milestone(16, "medalla 1 (Roxanne)", 5.0, lambda s, t: s.badges >= 1, False),
 )
