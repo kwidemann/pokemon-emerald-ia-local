@@ -203,6 +203,20 @@ Primer enfoque (reglas explícitas, sin aprendizaje). Código en `agents/rules/a
   3. El combate no se probó contra ataques de estado, objetos ni cambios de Pokémon; con un solo Pokémon vivo si cae se pierde el combate.
   4. Los datos de mapas, sprites (58 enfermera, 240 rival, 129 Norman, 125 Roxanne) y la lista de pasos del Tramo 1 están escritos a mano para este recorrido.
 
+### 7.6 Plan de la Fase 5: RL con PPO (2026-11-02)
+
+Segundo enfoque. Plan acordado, en este orden:
+
+1. **Entorno con `MilestoneMonitor`** (hecho): `env/pokemon_env.py` ya no usa `Tracker` suelto; un hito solo da recompensa tras `confirm=3` lecturas seguidas (la recompensa llega 2 pasos tarde). Lo que ya se cumple en el savestate no da recompensa. Probado **sin emulador** con un cliente y estados falsos (el hito 6 da su recompensa en la 3.ª lectura y una sola vez). Pendiente de probar en vivo.
+   - **Límite conocido:** para los hitos de "mapa visitado" el `Tracker` guarda la visita desde la primera lectura, así que una lectura puntual falsa de mapa sí se contaría tras 2 lecturas más. La confirmación protege las banderas (medallas), que fue el caso visto.
+2. **Varias instancias en paralelo** (consulta del usuario, 2026-11-02): una copia de mGBA por proceso, cada una con su puerto, y `SubprocVecEnv` de Stable-Baselines3. Cambios previstos:
+   - `emulator/server.lua` lee el puerto de la variable de entorno `POKEMON_IA_PORT` (por defecto 8888). **Hecho, sin verificar en vivo** (hay que comprobar que `os.getenv` existe en el Lua de mGBA); hay que recargar el script al abrir mGBA.
+   - Una copia de la ROM y del `.sav` por instancia (el original no se toca) y un lanzador que abra N emuladores y espere el `ping`.
+   - **Carga del script:** `mGBA.exe` 0.10.5 no acepta `--script` (7.1), así que hay que ver cómo cargarlo sin hacerlo a mano en cada ventana (otro ejecutable de mGBA sin ventana, o un guion de carga automática). Sin resolver.
+   - El número útil de instancias depende de los núcleos de la CPU; no está medido.
+3. **Recompensa** (Q5, abierta): se parte de la común por hitos (1,0 cada uno, 5,0 la medalla), con `new_tile_bonus` como ayuda opcional si PPO no encuentra el primer hito.
+4. **Entrenamiento y medición** con los mismos hitos y savestate que el agente de reglas (línea base: 10 de 10 hasta la medalla 1).
+
 ## 8. Métricas de comparación
 
 Pasos (frames) hasta cada hito, tasa de éxito sobre N semillas/savestates, tiempo de reloj, uso de VRAM/RAM, y tasa de respuestas inválidas del supervisor.

@@ -63,3 +63,12 @@ Registro cronológico de lo que se hizo, lo que se decidió y lo que se descubri
   - Comando `readmulti` en el Lua.
   - Verificar medallas y batallas contra entrenadores.
   - Fase 3: entorno Gymnasium.
+
+## 2026-11-02
+
+### Fase 5: RL con PPO (arranque)
+- **Hecho:** `env/pokemon_env.py` usa `MilestoneMonitor` (3 lecturas seguidas por hito); `emulator/server.lua` lee el puerto de `POKEMON_IA_PORT` para poder abrir varias instancias de mGBA. El entorno se probó sin emulador con estados falsos.
+- **Sin verificar en vivo:** el entorno con el emulador y que `os.getenv` exista en el Lua de mGBA.
+- **Plan acordado:** entrenar con varias instancias en paralelo (una por puerto, `SubprocVecEnv`). Falta resolver cómo cargar el script sin hacerlo a mano en cada ventana (`mGBA.exe` no acepta `--script`).
+- **Evaluación del agente de reglas con compra de Poké Balls:** 10 de 10 hasta la medalla 1 (incluida arriba, en la Fase 4).
+

@@ -17,7 +17,12 @@
 -- La máscara de teclas usa el orden de bits de GBA: A=0 B=1 SELECT=2 START=3
 -- RIGHT=4 LEFT=5 UP=6 DOWN=7 R=8 L=9.
 
+-- Puerto: la variable de entorno POKEMON_IA_PORT (una instancia de mGBA por puerto, para entrenar en paralelo) o 8888.
+-- Sin verificar en vivo todavía: si `os.getenv` no existe en el Lua de mGBA, se usa 8888.
 local PORT = 8888
+if os and os.getenv then
+	PORT = tonumber(os.getenv("POKEMON_IA_PORT") or "") or PORT
+end
 
 local server = nil
 local clients = {}  -- id -> socket

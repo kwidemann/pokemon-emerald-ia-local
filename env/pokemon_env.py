@@ -13,7 +13,7 @@ import numpy as np
 from gymnasium import spaces
 
 from emulator.client import Key, MGBAClient
-from env.milestones import BATTLE_TYPE_TRAINER, TRAMO_1, Milestone, Tracker
+from env.milestones import BATTLE_TYPE_TRAINER, TRAMO_1, Milestone, MilestoneMonitor
 from env.state import GameState, read_state
 
 # Acción discreta -> tecla. NOOP deja pasar el tiempo (útil para animaciones y texto).
@@ -63,11 +63,14 @@ class PokemonEmeraldEnv(gym.Env):
         milestones: tuple[Milestone, ...] = TRAMO_1,
         terminal_milestone: int | None = 16,
         new_tile_bonus: float = 0.0,
+        confirm: int = 3,
     ):
         """
         hold_frames/wait_frames: medido en vivo, una pulsación de 1-6 frames mueve exactamente una casilla.
         terminal_milestone: id del hito que termina el episodio con éxito (None = nunca).
         new_tile_bonus: recompensa de ayuda por pisar una casilla nueva (0 = solo hitos).
+        confirm: lecturas seguidas que necesita un hito para contarse (`MilestoneMonitor`): una lectura puntual falsa
+            de banderas ya dio por buena una medalla que no existía. La recompensa llega `confirm - 1` pasos tarde.
         """
         super().__init__()
         # mGBA resuelve las rutas relativas desde su propio directorio, no el nuestro.
@@ -83,8 +86,8 @@ class PokemonEmeraldEnv(gym.Env):
         self.action_space = spaces.Discrete(len(ACTIONS))
         self.observation_space = spaces.Box(0.0, 1.0, shape=(OBS_SIZE,), dtype=np.float32)
 
-        self._tracker = Tracker()
-        self._achieved: set[int] = set()
+        self.confirm = confirm
+        self._monitor = MilestoneMonitor(milestones, confirm)
         self._tiles: set[tuple[int, int, int, int]] = set()
         self._steps = 0
         self._state: GameState | None = None
@@ -92,29 +95,22 @@ class PokemonEmeraldEnv(gym.Env):
     def _observe(self, state: GameState) -> tuple[np.ndarray, dict]:
         info = {
             "state": state.to_dict(),
-            "milestones": sorted(self._achieved),
+            "milestones": sorted(self._monitor.achieved),
             "steps": self._steps,
         }
         return encode_observation(state), info
-
-    def _new_milestones(self, state: GameState) -> list[Milestone]:
-        return [
-            ms
-            for ms in self.milestones
-            if ms.id not in self._achieved and ms.check is not None and ms.check(state, self._tracker)
-        ]
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         super().reset(seed=seed)
         self.emu.load_state(self.savestate)
         self.emu.step(0, 2)  # deja que la RAM se asiente tras cargar
         self._steps = 0
-        self._tracker = Tracker()
+        self._monitor = MilestoneMonitor(self.milestones, self.confirm)
         self._tiles = set()
         state = read_state(self.emu)
-        self._tracker.update(state)
-        # Lo que ya se cumple en el savestate no da recompensa.
-        self._achieved = {ms.id for ms in self._new_milestones(state)}
+        # Lo que ya se cumple en el savestate no da recompensa: el mismo estado se procesa `confirm` veces.
+        for _ in range(self.confirm):
+            self._monitor.update(state)
         self._tiles.add((state.map_group, state.map_num, state.x, state.y))
         self._state = state
         return self._observe(state)
@@ -128,16 +124,14 @@ class PokemonEmeraldEnv(gym.Env):
 
         reward = 0.0
         if not state.in_transition:  # en un warp la ubicación es basura: no cuenta para hitos ni historial
-            self._tracker.update(state)
-            for ms in self._new_milestones(state):
-                self._achieved.add(ms.id)
+            for ms in self._monitor.update(state):
                 reward += ms.reward
             tile = (state.map_group, state.map_num, state.x, state.y)
             if self.new_tile_bonus and tile not in self._tiles:
                 reward += self.new_tile_bonus
             self._tiles.add(tile)
 
-        terminated = self.terminal_milestone is not None and self.terminal_milestone in self._achieved
+        terminated = self.terminal_milestone is not None and self.terminal_milestone in self._monitor.achieved
         truncated = self._steps >= self.max_steps
         self._state = state
         obs, info = self._observe(state)
