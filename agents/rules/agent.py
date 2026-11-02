@@ -22,11 +22,20 @@ from emulator.client import Key
 from env.mapdata import STEP, MapView, find_path, read_map
 from env.battle_data import BattleData
 from env.milestones import BATTLE_TYPE_TRAINER
+
+BATTLE_TYPE_DOUBLE = 0x01  # bit de pokeemerald; el combate doble dio flags 0xD en vivo
 from env.ram_map import G_ENEMY_PARTY, PARTY_MAX, POKEMON_SIZE
 from env.state import GameState, parse_party_mon
 from env.world import Exit, MapId, World
 from scripts.drive import Driver
 
+G_BAG_POSITION = 0x0203CE58  # struct BagPosition: +4 location, +5 pocket (0 objetos, 1 Poké Balls, 2 MT/MO, 3 bayas, 4 clave); [SYM]
+CB2_BAG = 0x081AAD5C  # gMain.callback2 de la mochila abierta en combate (observado 0x081AAD5D)
+POCKET_BALLS = 1
+G_RECORD_SIZES = 0x0203C794  # u16[4] sBattlerRecordSizes y, +8, sBattlerPrevRecordSizes; [SYM]
+G_ACTIVE_BATTLER = 0x02024064  # u8: quién está eligiendo ahora (0 y 2 son del jugador); [SYM]
+G_ACTION_SELECTION_CURSOR = 0x020244AC  # u8 por combatiente; [SYM]
+G_MOVE_SELECTION_CURSOR = 0x020244B0  # u8 por combatiente; [SYM]
 G_BATTLER_PARTY_INDEXES = 0x0202406E  # u16[4]: índice en el equipo de cada combatiente (0 = jugador, 1 = rival); [SYM], sin verificar en vivo
 ALL_DIRS = ("down", "up", "left", "right")
 
@@ -37,6 +46,9 @@ class Stats:
     dialogue_presses: int = 0
     moves: int = 0
     menu_exits: int = 0
+    post_battle_screens: int = 0
+    balls_thrown: int = 0
+    battle_turns: int = 0
     blocked_exits: int = 0
     log: list[str] = field(default_factory=list)
 
@@ -57,6 +69,10 @@ class RulesAgent:
         self._last_map: MapId | None = None
         self._text_key = Key.B
         self._text_run = 0
+        self._battle_end_frame = -(10**9)
+        self._seen_screens: set[int] = set()
+        self.catch_until: int | None = None  # tamaño del equipo que se quiere alcanzar capturando
+        self._party_before_throw = 0
         self.on_state = on_state  # se llama con cada GameState leído (p. ej. para seguir hitos)
         self.d = driver
         self.world = world
@@ -73,16 +89,30 @@ class RulesAgent:
 
     # --- acciones simples -------------------------------------------------------------------
 
-    def _pick_move(self, s: GameState) -> int:
-        """Índice (0-3) del movimiento con más daño esperado contra el rival activo. 0 si no se puede decidir."""
+    def _active_battler(self) -> int:
+        """Combatiente del jugador que está eligiendo (0 o 2 en combates dobles)."""
+        active = self.d.emu.read_multi([(G_ACTIVE_BATTLER, 1)])[1][0][0]
+        return active if active in (0, 2) else 0
+
+    def _pick_move(self, s: GameState, battler: int = 0) -> int:
+        """Índice (0-3) del movimiento con más daño esperado contra un rival en pie. 0 si no se puede decidir.
+
+        En combates dobles se apunta al primer rival con HP (combatientes 1 y 3)."""
         try:
-            _, (idx, enemy_raw) = self.d.emu.read_multi([(G_BATTLER_PARTY_INDEXES, 8), (G_ENEMY_PARTY, POKEMON_SIZE * PARTY_MAX)])
-            mine_i, enemy_i = struct.unpack_from("<HH", idx, 0)
-            mine = s.party[mine_i]
-            enemy = parse_party_mon(enemy_raw[enemy_i * POKEMON_SIZE : (enemy_i + 1) * POKEMON_SIZE])
+            _, (idx, enemy_raw) = self.d.emu.read_multi(
+                [(G_BATTLER_PARTY_INDEXES, 8), (G_ENEMY_PARTY, POKEMON_SIZE * PARTY_MAX)]
+            )
+            parties = struct.unpack_from("<4H", idx, 0)
+            mine = s.party[parties[battler]]
+            enemy = None
+            for eb in (1, 3):
+                cand = parse_party_mon(enemy_raw[parties[eb] * POKEMON_SIZE : (parties[eb] + 1) * POKEMON_SIZE])
+                if cand is not None and cand.checksum_ok and cand.hp > 0:
+                    enemy = cand
+                    break
         except (IndexError, struct.error, ValueError):
             return 0
-        if enemy is None or not enemy.checksum_ok or not mine.checksum_ok:
+        if enemy is None or not mine.checksum_ok:
             return 0
         scores = [
             self.battle_data.move_score(mv, mine.species, enemy.species) if mv and pp > 0 else -1.0
@@ -91,24 +121,112 @@ class RulesAgent:
         best = max(range(4), key=lambda k: scores[k])
         return best if scores[best] > 0 else next((k for k in range(4) if scores[k] >= 0), 0)
 
-    def _battle_turn(self) -> None:
-        """Una "ronda" de pulsaciones: FIGHT, mover el cursor al movimiento elegido y aceptar.
+    def _cursor_arrays(self) -> tuple[bytes, bytes]:
+        """Los cursores de acciones y de movimientos de los 4 combatientes."""
+        _, (act, mov) = self.d.emu.read_multi([(G_ACTION_SELECTION_CURSOR, 4), (G_MOVE_SELECTION_CURSOR, 4)])
+        return act, mov
 
-        No se sabe en qué parte del menú se está (texto, acciones, movimientos): las flechas no hacen nada durante
-        el texto y las A avanzan, así que repetir la secuencia converge. El cursor de movimientos recuerda el último
-        usado, por eso se lleva primero a la esquina superior izquierda (arriba, izquierda)."""
-        k = self._pick_move(self.d.state())
-        # El cursor del menú de acciones recuerda la última opción (visto sobre HUIR): se lleva a LUCHAR antes de aceptar.
-        self.d.tap(Key.UP, wait=6)
-        self.d.tap(Key.LEFT, wait=6)
-        self.d.tap(Key.A, wait=15)
-        self.d.tap(Key.UP, wait=6)
-        self.d.tap(Key.LEFT, wait=6)
+    def _cursors(self, battler: int = 0) -> tuple[int, int]:
+        """(cursor del menú de acciones, cursor del menú de movimientos) de ese combatiente, de la RAM."""
+        _, (act, mov) = self.d.emu.read_multi(
+            [(G_ACTION_SELECTION_CURSOR + battler, 1), (G_MOVE_SELECTION_CURSOR + battler, 1)]
+        )
+        return act[0], mov[0]
+
+    def _check_record_buffer(self) -> None:
+        """El juego graba cada acción elegida en un búfer; si entre dos vaciados se acumulan 256 bytes o más, un bucle
+        con contador de 8 bits en `RecordedBattle_BufferNewBattlerData` no termina y el juego se cuelga (visto en
+        vivo con HUIR elegido cientos de veces en un combate de entrenador). Aquí se corta antes."""
+        _, (raw,) = self.d.emu.read_multi([(G_RECORD_SIZES, 16)])
+        sizes, prev = struct.unpack_from("<4H", raw, 0), struct.unpack_from("<4H", raw, 8)
+        worst = max(a - b for a, b in zip(sizes, prev))
+        if worst >= 200:
+            raise RuntimeError(
+                f"el búfer de grabación del combate va por {worst} bytes (el juego se cuelga a los 256): "
+                "se detiene el agente antes de colgarlo. Pulsaciones: " + str(self.stats.battle_turns)
+            )
+
+    def _bag_step(self) -> None:
+        """Mochila abierta en combate: ir al bolsillo de Poké Balls y usar el primer objeto."""
+        _, (pos,) = self.d.emu.read_multi([(G_BAG_POSITION + 5, 1)])
+        pocket = pos[0]
+        if pocket != POCKET_BALLS:
+            self.d.tap(Key.RIGHT if pocket < POCKET_BALLS else Key.LEFT, wait=40)
+            return
+        self.d.tap(Key.A, wait=40)  # elegir el objeto; si sale el menú USAR/CANCELAR, la siguiente A usa
+
+    def _throw_ball(self, st: GameState) -> bool:
+        """Abre la mochila desde el menú de acciones (cursor en BAG). False si no se está en ese menú."""
+        self.d.tap(Key.UP, wait=12)
+        self.d.tap(Key.LEFT, wait=12)
+        act0, _ = self._cursors()
+        if act0 != 0:
+            return False
+        self.d.tap(Key.RIGHT, wait=12)
+        act1, _ = self._cursors()
+        if act1 != 1:  # no estamos en el menú de acciones (texto o menú de movimientos)
+            self.d.tap(Key.A, wait=25)
+            return True
+        self.stats.balls_thrown += 1
+        self.d.tap(Key.A, wait=90)  # abrir la mochila
+        return True
+
+    def _battle_turn(self) -> None:
+        """Un intento de elegir y usar el mejor movimiento, guiado por los cursores de la RAM.
+
+        Se llega a la esquina superior izquierda (arriba, izquierda) y se prueba con DERECHA qué cursor se mueve:
+        el de acciones (estamos en el menú de acciones: se vuelve a FIGHT y se abre el de movimientos) o el de
+        movimientos (ya estamos en él). Si no se mueve ninguno hay texto en pantalla y se avanza con B (con A,
+        un cursor olvidado sobre HUIR lo elegía en bucle: "No! There's no running from a TRAINER battle!").
+        Direcciones: gActionSelectionCursor y gMoveSelectionCursor, [SYM]; el comportamiento se observó en vivo."""
+        st = self.d.state()
+        if (st.callback2 & ~1) == CB2_BAG:
+            if self.catch_until and len(st.party) < self.catch_until and not st.battle_type_flags & BATTLE_TYPE_TRAINER:
+                self._bag_step()
+            else:
+                self.d.tap(Key.B, wait=40)  # no se capturaba: cerrar la mochila sin usar nada
+            return
+        if self.catch_until and len(st.party) < self.catch_until and not st.battle_type_flags & BATTLE_TYPE_TRAINER:
+            if self._throw_ball(st):
+                return
+        elif self.catch_until and len(st.party) >= self.catch_until:
+            self.d.tap(Key.B, wait=25)  # ya capturado: B contesta NO al apodo y avanza el texto
+            return
+        # Quién elige: en combates dobles hay dos combatientes del jugador (0 y 2) y no se fía uno de gActiveBattler
+        # (valía 4 con la mochila abierta). Se prueba con DERECHA y se ve cuál de los cursores se mueve.
+        players = (0, 2) if st.battle_type_flags & BATTLE_TYPE_DOUBLE else (0,)
+        self.d.tap(Key.UP, wait=12)
+        self.d.tap(Key.LEFT, wait=12)
+        act0, mov0 = self._cursor_arrays()
+        self.d.tap(Key.RIGHT, wait=12)
+        act1, mov1 = self._cursor_arrays()
+        in_actions = [b for b in players if act1[b] != act0[b]]
+        in_moves = [b for b in players if mov1[b] != mov0[b]]
+        if in_actions:  # menú de acciones: volver a FIGHT (comprobándolo) y abrir los movimientos
+            battler = in_actions[0]
+            for _ in range(4):
+                self.d.tap(Key.LEFT, wait=15)
+                if self._cursor_arrays()[0][battler] == 0:
+                    break
+            else:
+                return  # el cursor no volvió a FIGHT: no aceptar (abriría la mochila o HUIR)
+            k = self._pick_move(st, battler)
+            self.d.tap(Key.A, wait=40)
+            self.d.tap(Key.UP, wait=12)
+            self.d.tap(Key.LEFT, wait=12)
+        elif in_moves:  # ya en el menú de movimientos (cursor en la casilla 1)
+            battler = in_moves[0]
+            k = self._pick_move(st, battler)
+            self.d.tap(Key.LEFT, wait=12)
+        else:  # nada se movió: texto, animación, elegir objetivo o una pregunta SÍ/NO ("¿olvidar un movimiento?")
+            # A y no B: con B las preguntas SÍ/NO se contestan NO y "no aprender" <-> "olvidar uno" se repite sin fin.
+            self.d.tap(Key.A, wait=25)
+            return
         if k % 2:
-            self.d.tap(Key.RIGHT, wait=6)
+            self.d.tap(Key.RIGHT, wait=12)
         if k >= 2:
-            self.d.tap(Key.DOWN, wait=6)
-        self.d.tap(Key.A, wait=25)
+            self.d.tap(Key.DOWN, wait=12)
+        self.d.tap(Key.A, wait=30)
 
     def _leave_screen(self) -> None:
         self.d.tap(Key.B, wait=25)
@@ -198,14 +316,27 @@ class RulesAgent:
                 kind = "entrenador" if s.battle_type_flags & BATTLE_TYPE_TRAINER else "salvaje"
                 self.say(f"  batalla {kind} (flags={s.battle_type_flags:#x}) en {(s.map_group, s.map_num)}")
             self._was_in_battle = True
+            self.stats.battle_turns += 1
+            if self.stats.battle_turns % 10 == 0:
+                self._check_record_buffer()
             self._battle_turn()
             return True
         if self._was_in_battle:
             self._was_in_battle = False
+            self._battle_end_frame = s.frame
             lead = s.party[0] if s.party else None
             self.say(f"  fin de la batalla: líder nv{lead.level if lead else '?'} hp {lead.hp if lead else '?'}")
         if not s.in_overworld:
-            self._leave_screen()
+            # Justo después de un combate las pantallas son la evolución y el aprendizaje de movimientos: B las
+            # cancelaría (se perdería la evolución), así que se acepta con A. Fuera de ese margen, B para salir de menús.
+            if s.frame - self._battle_end_frame < 30 * 60:
+                self.d.tap(Key.A, wait=25)
+                self.stats.post_battle_screens += 1
+                if (s.callback2 & ~1) not in self._seen_screens:
+                    self._seen_screens.add(s.callback2 & ~1)
+                    self.say(f"  pantalla tras combate: callback2={s.callback2:#x}")
+            else:
+                self._leave_screen()
             return True
         if s.script_active:
             self._advance_text()
@@ -213,9 +344,13 @@ class RulesAgent:
         self._text_run = 0
         return False
 
-    def _hurt(self, s: GameState) -> bool:
+    @staticmethod
+    def _below(s: GameState, fraction: float) -> bool:
         fracs = [m.hp / m.max_hp for m in s.party if m.max_hp]
-        return bool(fracs) and min(fracs) < self.heal_below
+        return bool(fracs) and min(fracs) < fraction
+
+    def _hurt(self, s: GameState) -> bool:
+        return self._below(s, self.heal_below)
 
     def heal(self, target: MapId | None = None) -> bool:
         """Va al Centro Pokémon más cercano (por número de salidas) y habla con la enfermera."""
@@ -239,6 +374,49 @@ class RulesAgent:
             return self.talk_to(pc, self.world.NURSE_GRAPHICS_ID)
         finally:
             self._healing = False
+
+    def catch(self, map_id: MapId, party_size: int = 2, max_iterations: int = 3000) -> bool:
+        """Camina por la hierba de `map_id` y lanza Poké Balls en los combates salvajes hasta tener `party_size` Pokémon."""
+        if not self.goto(map_id):
+            return False
+        self.catch_until = party_size
+        try:
+            for it in range(max_iterations):
+                s = self.d.state()
+                if self.on_state and not s.in_transition:
+                    self.on_state(s)
+                if self._interrupts(s):
+                    continue
+                if len(s.party) >= party_size:
+                    self.say(f"  equipo de {len(s.party)} tras {it} iteraciones y {self.stats.balls_thrown} lanzamientos")
+                    return True
+                here = (s.map_group, s.map_num)
+                if self._hurt(s) and here not in self.world.pokemon_centers() and not self._heal_failed:
+                    if not self.heal():
+                        self._heal_failed = True
+                    continue
+                if here != map_id:
+                    if not self.goto(map_id):
+                        return False
+                    continue
+                view = read_map(self.d.emu, *here)
+                p = view.player
+                grass = {
+                    (x, y)
+                    for x in range(view.inner_width)
+                    for y in range(view.inner_height)
+                    if view.is_grass(x, y) and view.walkable(x, y)
+                } - {(p.x, p.y)}
+                path = find_path(view, grass) if grass else None
+                if not path:
+                    self.say(f"  no hay hierba alta alcanzable en {map_id}")
+                    return False
+                self.d.move(path[0], 1)
+                self.stats.moves += 1
+            self.say("  captura: se acabaron las iteraciones")
+            return False
+        finally:
+            self.catch_until = None
 
     def grind(self, map_id: MapId, level: int, max_iterations: int = 3000) -> bool:
         """Camina por la hierba alta de `map_id` provocando combates salvajes hasta que el líder llegue a `level`."""
@@ -299,8 +477,13 @@ class RulesAgent:
             self.d.emu.step(0, 60)
         self.say("  settle: no se quedó libre")
 
-    def talk_to(self, map_id: MapId, graphics_id: int, max_iterations: int = 400) -> bool:
-        """Va al mapa, camina hasta el NPC con ese gráfico y le habla (A). Los entrenadores también cuentan."""
+    def talk_to(self, map_id: MapId, graphics_id: int, max_iterations: int = 400, min_hp: float = 0.0) -> bool:
+        """Va al mapa, camina hasta el NPC con ese gráfico y le habla (A). Los entrenadores también cuentan.
+
+        `min_hp`: si algún Pokémon está por debajo de esta fracción de HP se cura antes (retos: rival, líder)."""
+        if min_hp and not self._healing and self._below(self.d.state(), min_hp):
+            if self.d.pos()[:2] not in self.world.pokemon_centers():
+                self.heal(map_id)
         if not self.goto(map_id):
             return False
         template = next((n for n in self.world.maps[map_id].npcs if n.graphics_id == graphics_id), None)

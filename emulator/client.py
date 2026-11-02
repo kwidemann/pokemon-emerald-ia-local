@@ -102,5 +102,9 @@ class MGBAClient:
         """Reinicia la consola (arranca desde el logo). No borra el .sav."""
         self._command("reset")
 
+    def reg(self, name: str) -> int:
+        """Registro de la CPU (pc, lr, sp, r0..r15, cpsr); sirve para ver dónde está un cuelgue."""
+        return int(self._command(f"reg {name}"))
+
     def screenshot(self, path: str) -> None:
         self._command(f"screenshot {path}")

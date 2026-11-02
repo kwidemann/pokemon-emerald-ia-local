@@ -27,10 +27,10 @@ OLDALE = (0, 10)  # verificado en vivo (hito 6)
 ROUTE_103 = (0, 18)  # verificado en vivo (hito 7)
 PETALBURG = (0, 0)  # verificado en vivo (hito 9)
 RUSTBORO = (0, 3)  # verificado en vivo (hito 12)
-RUSTBORO_GYM = (11, 3)  # del grafo de la ROM (3 entrenadores y un líder); sin pisar aún
+RUSTBORO_GYM = (11, 3)  # verificado en vivo (hito 15)
 
 FLAG_SYS_POKEDEX_GET = 0x861  # verificada en vivo: se activó al hablar con Birch tras vencer al rival
-SPECIES_MARSHTOMP = 284  # índice interno de Gen III; Mudkip = 283 (verificado en vivo)
+SPECIES_MARSHTOMP = 284  # índice interno de Gen III; Mudkip = 283. Verificado en vivo: evolucionó en el combate con Roxanne
 
 
 @dataclass
@@ -83,11 +83,11 @@ TRAMO_1: tuple[Milestone, ...] = (
     Milestone(8, "Pokédex recibida", 1.0, lambda s, t: s.flag(FLAG_SYS_POKEDEX_GET), True),
     Milestone(9, "Petalburg City", 1.0, _visited(PETALBURG), True),
     Milestone(10, "tutorial de captura de Wally", 1.0, lambda s, t: t.wally_tutorial_seen, True),
-    Milestone(11, "entrenador vencido en el Bosque Petalburgo", 1.0, lambda s, t: WOODS in t.trainer_wins_on, False),
+    Milestone(11, "entrenador vencido en el Bosque Petalburgo", 1.0, lambda s, t: WOODS in t.trainer_wins_on, True),
     Milestone(12, "Rustboro City", 1.0, _visited(RUSTBORO), True),
-    Milestone(13, "segundo Pokémon capturado", 1.0, lambda s, t: len(s.party) >= 2, False),
+    Milestone(13, "segundo Pokémon capturado", 1.0, lambda s, t: len(s.party) >= 2, True),
     Milestone(14, "starter evoluciona a Marshtomp", 1.0,
-              lambda s, t: any(mon.species == SPECIES_MARSHTOMP for mon in s.party), False),
-    Milestone(15, "gimnasio de Rustboro", 1.0, _visited(RUSTBORO_GYM), False),
-    Milestone(16, "medalla 1 (Roxanne)", 5.0, lambda s, t: s.badges >= 1, False),
+              lambda s, t: any(mon.species == SPECIES_MARSHTOMP for mon in s.party), True),
+    Milestone(15, "gimnasio de Rustboro", 1.0, _visited(RUSTBORO_GYM), True),
+    Milestone(16, "medalla 1 (Roxanne)", 5.0, lambda s, t: s.badges >= 1, True),
 )

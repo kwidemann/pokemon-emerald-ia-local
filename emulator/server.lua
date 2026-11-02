@@ -11,6 +11,7 @@
 --   step <mascara_teclas> <frames>    mantiene las teclas N frames y responde al terminar
 --   savestate <ruta> | loadstate <ruta>
 --   reset                             reinicia la consola (arranca desde el logo)
+--   reg <nombre>                      registro de la CPU (pc, lr, sp, r0..r15, cpsr) para depurar
 --   screenshot <ruta>
 --
 -- La máscara de teclas usa el orden de bits de GBA: A=0 B=1 SELECT=2 START=3
@@ -75,6 +76,14 @@ local function handle(id, line)
 		-- Reinicia la consola como si se apagara y encendiera (vuelve al logo/título; no toca el .sav).
 		emu:reset()
 		reply(id, "OK")
+	elseif cmd == "reg" then
+		-- reg <nombre>: valor de un registro de la CPU (r0..r15, pc, sp, lr, cpsr) en decimal; para depurar cuelgues.
+		local ok, val = pcall(function() return emu:readRegister(parts[2]) end)
+		if ok and val then
+			reply(id, "OK " .. val)
+		else
+			reply(id, "ERR registro desconocido: " .. tostring(parts[2]))
+		end
 	elseif cmd == "readmulti" then
 		-- readmulti <addr>:<len> <addr>:<len> ...  ->  OK <frame> <hex1> <hex2> ...
 		local out = { tostring(emu:currentFrame()) }

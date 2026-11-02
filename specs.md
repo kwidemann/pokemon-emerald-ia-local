@@ -178,19 +178,24 @@ pokemon-ia/
 
 ### 7.5 Estado de la Fase 4: agente de reglas (2026-11-01)
 
-Primer enfoque (reglas explícitas, sin aprendizaje). Código en `agents/rules/agent.py`, lanzador `scripts/run_rules.py`, y tres módulos de apoyo reutilizables por los demás enfoques: `env/mapdata.py` (mapa y colisiones desde la RAM), `env/world.py` (grafo de mapas desde la ROM) y `env/battle_data.py` (movimientos y tipos desde la ROM).
+Primer enfoque (reglas explícitas, sin aprendizaje). Código en `agents/rules/agent.py`, lanzador `scripts/run_rules.py` (con `--tramo1` para el guion completo), y tres módulos de apoyo reutilizables por los demás enfoques: `env/mapdata.py` (mapa y colisiones desde la RAM), `env/world.py` (grafo de mapas desde la ROM) y `env/battle_data.py` (movimientos y tipos desde la ROM).
 
-- **Cómo decide (prioridad en cada iteración):** batalla abierta, pantalla que no es el mundo (se sale con B), diálogo (B por defecto), curarse si algún Pokémon baja del 50 % de HP, y por último navegar hacia el mapa objetivo.
-- **Navegación:** el grafo de la ROM da el camino entre mapas (warps y conexiones) y `find_path` (BFS sobre las colisiones leídas de la RAM) lleva al jugador hasta la salida. El grafo distingue **zonas conexas** de cada mapa (calculadas con la cuadrícula de la ROM), así la Ruta 104 se recorre como sur, Bosque Petalburgo y norte. Las puertas de edificio tienen colisión: se llega a la casilla de al lado y se empuja. Las alfombras de salida se pisan y se pulsa la dirección que activa el warp.
-- **Combate:** elige el movimiento con más daño esperado (poder x STAB x efectividad x precisión), con los datos de la ROM. Antes de aceptar lleva el cursor a LUCHAR y al movimiento (el cursor recuerda la última opción; una vez eligió HUIR y se quedó en bucle).
-- **Otras rutinas:** `talk_to` (camina hasta un NPC por su sprite y le habla, también a través de un mostrador), `heal` (Centro Pokémon más cercano, enfermera con el sprite 58), `grind` (camina por la hierba alta hasta subir de nivel; detecta hierba con el comportamiento de casilla de los tilesets).
-- **Verificado en vivo (desde `lab_mudkip.ss0`):** Oldale (hito 6), rival vencido en la Ruta 103 con flags `0xC` (hito 7), Pokédex (flag `0x861`, hito 8), Petalburg (hito 9), tutorial de Wally con flags `0x204` (hito 10), cruce del Bosque Petalburgo y llegada a Rustboro (hito 12), curación en los Centros Pokémon de Oldale y de Rustboro. Con entrenamiento el Mudkip llegó a nivel 12. El grafo de la ROM tiene 518 mapas y 18 mapas con enfermera. Los datos de movimientos de la ROM (Placaje 35/95/35 PP, Mudkip de agua, Geodude de roca y tierra, agua contra roca y tierra x4) coinciden con el juego.
-- **Descubrimientos:** tras hablar con un NPC, una `A` de más lo vuelve a "hablar" y el diálogo se repite sin fin (por eso B). El cursor del menú de acciones recuerda HUIR. Perder contra el rival en la Ruta 103 con el Mudkip a nivel 5-7 es frecuente y manda a casa.
-- **Problemas abiertos:**
-  1. **Cuelgue del juego:** en un combate de entrenador de la Ruta 104 norte el juego dejó de leer botones (`gMain.heldKeysRaw` fijo, el registro `REG_KEYINPUT` de mGBA sí respondía y el contador de vblank seguía), así que quedó atascado en el menú de movimientos. Causa no identificada y no reproducida en el segundo intento; se perdió ese progreso al recargar el savestate. Sospechas sin comprobar: un cuelgue del propio juego o una interacción con el avance rápido.
-  2. El agente **no completó el Tramo 1**: faltan los hitos 13 (captura), 14 (evolución a Marshtomp, que además exige no cancelar con B la pantalla de evolución) y 15 y 16 (Roxanne).
-  3. El entrenamiento y la curación son básicos: tras perder, el agente puede agotar sus iteraciones sin avanzar; no hay lógica para huir de combates salvajes con poca vida.
-  4. El combate no se probó contra ataques que mejoran o empeoran estadísticas, ni con objetos o cambios de Pokémon.
+**Resultado:** desde el savestate del laboratorio, una ejecución continua (`uv run python scripts/run_rules.py --tramo1`) completó los **13 hitos del Tramo 1** (3, 5 a 16): llegó a la medalla 1 de Roxanne en 2 min 40 s de reloj y 191 818 frames de juego (53 min de juego), con 37 combates y 1213 movimientos. Los frames por hito de esa ejecución fueron: Oldale 3258, rival 40 849, Pokédex 45 923, Petalburg 72 242, Wally 77 866, bosque 104 018, Rustboro 110 589, segundo Pokémon 117 709, gimnasio 163 164, medalla 191 100 (el hito 14 aparece al evolucionar en el combate contra Roxanne). Es **una** ejecución: no hay todavía tasa de éxito ni variación entre semillas, y el azar del juego cambia entre ejecuciones (en otras ejecuciones el agente perdió contra el rival o necesitó más entrenamiento).
+
+- **Cómo decide (prioridad en cada iteración):** batalla abierta; pantalla que no es el mundo (justo tras un combate se acepta con A para no cancelar la evolución, después se sale con B); diálogo (B por defecto); curarse si algún Pokémon baja del 50 % de HP; y por último navegar hacia el mapa objetivo.
+- **Navegación:** el grafo de la ROM da el camino entre mapas (warps y conexiones) y `find_path` (BFS sobre las colisiones leídas de la RAM) lleva al jugador hasta la salida. El grafo distingue **zonas conexas** de cada mapa (calculadas con la cuadrícula de la ROM): la Ruta 104 se recorre como sur, Bosque Petalburgo y norte. Las puertas de edificio tienen colisión: se llega a la casilla de al lado y se empuja. Las alfombras de salida se pisan y se pulsa la dirección que activa el warp.
+- **Combate:** elige el movimiento con más daño esperado (poder x STAB x efectividad x precisión) con los datos de la ROM. Se guía por los cursores de la RAM (`gActionSelectionCursor`, `gMoveSelectionCursor`): prueba con DERECHA cuál de los cursores se mueve, vuelve a FIGHT comprobándolo, y solo entonces acepta. En combates dobles mira los dos combatientes del jugador (0 y 2). Contesta SÍ a las preguntas (aprender un movimiento nuevo).
+- **Capturas:** abre la mochila (BAG), va al bolsillo de Poké Balls (`gBagPosition+5`) y usa el primer objeto; una vez capturado contesta NO al apodo con B. Bolsa verificada en vivo: bolsillo de Poké Balls en `SaveBlock1+0x650` (objeto 4 = Poké Ball, cantidad cifrada con la clave de `SaveBlock2+0xAC`).
+- **Otras rutinas:** `talk_to` (camina hasta un NPC por su sprite y le habla, también a través de un mostrador; puede curarse antes), `heal` (Centro Pokémon más cercano, enfermera con el sprite 58), `grind` (entrena en la hierba alta, detectada con el comportamiento de casilla del tileset), `catch`.
+- **Datos verificados en vivo:** flags `0x861` (Pokédex), `0x867` (medalla 1); batalla de entrenador `gBattleTypeFlags = 0xC`, doble `0xD`, tutorial de Wally `0x204`; grupos y números de mapa de todas las paradas; el grafo de la ROM (518 mapas, 18 con enfermera); datos de movimientos y tipos de la ROM contra el juego.
+
+**El cuelgue del juego (resuelto):** el juego se colgó dos veces en combates de entrenador. La causa **no** era del emulador ni del avance rápido: el agente elegía HUIR (o abría la mochila) cientos de veces en un mismo combate, y el juego graba cada acción en un búfer (`sBattleRecords`, `0x0203BD34`; tamaños en `0x0203C794`, previos en `0x0203C79C`). Al terminar, `RecordedBattle_BufferNewBattlerData` copia lo acumulado con un contador `u8`: si la diferencia es de 256 bytes o más, el bucle no termina nunca (en el estado colgado el combatiente 0 tenía 664 bytes grabados, todos `03` = HUIR, contra 3 previos). Se encontró leyendo el `pc` de la CPU (comando `reg`), que estaba dentro de esa función. Medidas: el agente vigila ese búfer cada 10 turnos y se detiene con un error si pasa de 200 bytes; no usa HUIR; no acepta un menú si el cursor no volvió a FIGHT; cierra la mochila con B si no está capturando.
+
+- **Problemas conocidos:**
+  1. Una sola ejecución completa; falta medir la tasa de éxito con varias semillas. El agente depende del azar: puede perder contra el rival de la Ruta 103 si va con poco nivel.
+  2. El entrenamiento y la curación son básicos (umbral fijo de HP; los combates salvajes con poca vida siguen peleándose).
+  3. El combate no se probó contra ataques de estado, objetos ni cambios de Pokémon; con un solo Pokémon vivo si cae se pierde el combate.
+  4. Los datos de mapas, sprites (58 enfermera, 240 rival, 129 Norman, 125 Roxanne) y la lista de pasos del Tramo 1 están escritos a mano para este recorrido.
 
 ## 8. Métricas de comparación
 
@@ -225,12 +230,12 @@ Cada hito debe ser **detectable desde la RAM** (mapa, bandera, cantidad de medal
 | 8 | Volver al laboratorio y recibir la Pokédex | Bandera `0x861` | Verificado (la bandera se activó al hablar con Birch) |
 | 9 | Llegar a Petalburg City por la Ruta 102 | Mapa `(0,0)` | Verificado |
 | 10 | Escena de captura de Wally (hablar con Norman en el gimnasio de Petalburg) | `gBattleTypeFlags & 0x200` durante el combate (valió `0x204`) | Verificado |
-| 11 | Cruzar el Bosque Petalburgo y vencer a un entrenador | Mapa `(24,11)` y combate de entrenador ganado | Se cruzó el bosque y hubo combates; falta confirmar cuál fue el recluta de Aqua |
+| 11 | Cruzar el Bosque Petalburgo y vencer a un entrenador | Mapa `(24,11)` y combate de entrenador ganado | Verificado (no se distingue si fue el recluta de Aqua) |
 | 12 | Llegar a Rustboro City por la Ruta 104 | Mapa `(0,3)` | Verificado |
-| 13 | Capturar un segundo Pokémon | `party_count >= 2` | Pendiente |
-| 14 | Starter a nivel 16: Mudkip evoluciona a Marshtomp **[memoria]** | La especie interna pasa de 283 a 284 | Pendiente |
-| 15 | Entrar al gimnasio de Rustboro | Mapa `(11,3)` (del grafo de la ROM) | Pendiente |
-| 16 | Vencer a Roxanne | Bandera `0x867` y 1 medalla | Pendiente |
+| 13 | Capturar un segundo Pokémon | `party_count >= 2` | Verificado |
+| 14 | Starter a nivel 16: Mudkip evoluciona a Marshtomp | La especie interna pasa de 283 a 284 | Verificado |
+| 15 | Entrar al gimnasio de Rustboro | Mapa `(11,3)` | Verificado |
+| 16 | Vencer a Roxanne | Bandera `0x867` y 1 medalla | Verificado |
 
 Roxanne usa, de memoria, Geodude nivel 14, Geodude nivel 14 y Nosepass nivel 15 (tipo Roca); no está comprobado.
 
