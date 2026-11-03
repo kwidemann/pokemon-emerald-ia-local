@@ -29,6 +29,13 @@ PETALBURG = (0, 0)  # verificado en vivo (hito 9)
 RUSTBORO = (0, 3)  # verificado en vivo (hito 12)
 RUSTBORO_GYM = (11, 3)  # verificado en vivo (hito 15)
 
+# Meta del premio por acercarse (R3): el primer par cuyo hito aún no se ha cumplido manda. Se omite el hito 5 (laboratorio): los
+# puntos de partida de entrenamiento ya lo cumplieron en la partida real y volver atrás sería un desvío. Los hitos sin lugar
+# (8, 10, 11, 13, 14, 16) no tienen meta: tras 15 no queda ninguna y el premio vale 0.
+SHAPING_GOALS: tuple[tuple[int, tuple[int, int]], ...] = (
+    (6, OLDALE), (7, ROUTE_103), (9, PETALBURG), (12, RUSTBORO), (15, RUSTBORO_GYM),
+)
+
 FLAG_SYS_POKEDEX_GET = 0x861  # verificada en vivo: se activó al hablar con Birch tras vencer al rival
 SPECIES_MARSHTOMP = 284  # índice interno de Gen III; Mudkip = 283. Verificado en vivo: evolucionó en el combate con Roxanne
 

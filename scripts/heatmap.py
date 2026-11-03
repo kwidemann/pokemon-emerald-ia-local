@@ -105,6 +105,8 @@ def render(args) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     for m, tiles in merged.items():
         g, n = (int(v) for v in m.split(","))
+        if (g, n) not in renderer.world.maps:
+            continue  # lectura espuria (p. ej. (-1,-1) durante una transición)
         base = renderer.render((g, n)).convert("RGBA")
         scale = max(1, min(3, 1400 // base.width))
         base = base.resize((base.width * scale, base.height * scale), Image.NEAREST)
