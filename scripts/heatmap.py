@@ -49,7 +49,8 @@ def watch(args) -> None:
 
     print(f"muestreando {args.ports} cada {args.interval} s hasta {args.minutes} min; salida {out}", flush=True)
     try:
-        while time.time() < deadline and failures < 20:
+        stop = Path(args.stop_file) if args.stop_file else None
+        while time.time() < deadline and failures < 20 and not (stop and stop.exists()):
             ok_any = False
             for port in args.ports:
                 try:
@@ -140,6 +141,7 @@ def main() -> None:
     w.add_argument("--name", required=True)
     w.add_argument("--interval", type=float, default=0.25)
     w.add_argument("--minutes", type=float, default=150)
+    w.add_argument("--stop-file", help="termina (y guarda) cuando existe este archivo")
     w.add_argument("--fresh", action="store_true", help="empezar de cero aunque exista el archivo")
     r = sub.add_parser("render")
     r.add_argument("--name", required=True)

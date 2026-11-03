@@ -30,7 +30,8 @@ tabla. Descuento `gamma` 0,99.
 | `ppo_r3_acercamiento` | 2026-11-02 | 500 000 | igual que `ppo_500k` | 0,005 | 1000 pasos | 0,01 | 512 | Terminada (498 episodios, ~1 h 53 min). Hito 6 (Oldale): **norte 133 de 166 (80 %)** (27, 53 y 53 de 55-56 por tercios), **sur 2 de 166**, laboratorio 0 de 166; ningún hito más allá del 6. Distancia mínima a Oldale por tercios: laboratorio 54, 40 y 29 (de 65), sur 22, 22 y 23 (de 35), norte 3, 0,2 y 0,2 (de 8). R1 (los mismos castigos) más **premio por acercarse**: 0,01 por casilla de distancia a pie hacia Oldale que se reduce, y −0,01 por cada una que se aleja (tope de ±3 casillas por paso). Distancia inicial: laboratorio 65, sur 35, norte 8 casillas |
 | `ppo_r3b_choques_escalados` | 2026-11-02 | 500 000 | igual que `ppo_500k` | 0,005 | 1000 pasos | 0,01 | 512 | Terminada (498 episodios, ~2 h 13 min). Hito 6 (Oldale): **norte 130 de 166 (78 %)** (29, 46 y 55 de 55-56 por tercios), **sur 1 de 166**, laboratorio 0 de 166; ningún hito más allá del 6, igual que R3. Choques por episodio −40 % a −55 % respecto a R3 (laboratorio 71, sur 87, norte 59), pero los giros subieron (631, 575 y 367) y la racha de choques más larga llega al tope (~10-12). Distancia mínima a Oldale por tercios: laboratorio 56, 43 y 30, sur 22, 20 y 22, norte 2,3, 0,7 y 0. R3 (castigos de R1 más premio por acercarse) con **un solo cambio**: el castigo por choque se multiplica por los choques seguidos en la misma casilla, hasta 10 veces (de 0,002 a 0,02 por paso); la racha se reinicia al moverse a otra casilla. Motivo: en la evaluación determinista de R3 el agente se quedó pulsando ARRIBA contra un desnivel en 9 de 9 episodios |
 | `ppo_r3c_castigo_giros` | 2026-11-03 | 500 000 | igual que `ppo_500k` | 0,005 | 1000 pasos | 0,01 | 512 | Terminada (498 episodios, ~1 h 54 min). Hito 6 (Oldale): norte 116 de 166 (70 %; R3b 130), sur 0 de 166, laboratorio 0 de 166; ningún hito más allá del 6. Los giros bajaron (laboratorio 631 a 35, sur 575 a 237, norte 367 a 152) pero **el agente aprendió a esconderse en los diálogos**, que no llevan castigo: en los últimos 55 episodios del laboratorio gasta ~989 de 1000 pasos en diálogo, pisa 1 casilla y la distancia mínima a Oldale se queda en 65 (sin avance); en sur y norte los pasos en diálogo y 'quieto' también subieron (quieto 240 y 125 por episodio). R3b con **un solo cambio**: cada giro en el lugar (la pulsación solo gira al personaje, sin moverlo) cuesta 0,002, igual que un choque fijo; el castigo por choque escalado (tope 10) sigue igual. Motivo: en R3b los choques bajaron 40-55 % pero los giros subieron (367 a 631 por episodio) y el atasco determinista siguió |
-| `ppo_r3d_castigo_dialogos` | 2026-11-03 | 500 000 | igual que `ppo_500k` | 0,005 | 1000 pasos | 0,01 | 512 | En curso. **R3b** (sin castigo por giros) con **un solo cambio**: cada paso con un diálogo o script activo cuesta 0,002. Motivo: en R3c el agente se escondió en el diálogo del laboratorio (~989 de 1000 pasos), que no llevaba castigo |
+| `ppo_r3d_castigo_dialogos` | 2026-11-03 | 500 000 | igual que `ppo_500k` | 0,005 | 1000 pasos | 0,01 | 512 | Terminada (498 episodios, ~2 h 12 min). Hito 6 (Oldale): norte 135 de 166 (81 %; R3b 130), sur 1 de 166, laboratorio 0 de 166; ningún hito más allá del 6. El castigo cerró el escondite de R3c (diálogos por episodio: laboratorio 11, sur 0, norte 2) y el resto quedó casi igual que R3b: choques 59 a 78, giros 377 a 637; distancia mínima a Oldale por tercios: laboratorio 55, 34 y 30, sur 24, 21 y 22, norte 2,6, 0,3 y 0,1. **R3b** (sin castigo por giros) con **un solo cambio**: cada paso con un diálogo o script activo cuesta 0,002. Motivo: en R3c el agente se escondió en el diálogo del laboratorio (~989 de 1000 pasos), que no llevaba castigo |
+| `ppo_r4a_terreno` | 2026-11-03 | 500 000 | igual que `ppo_500k` | 0,005 | 1000 pasos | 0,01 | 512 | Terminada (498 episodios, ~2 h 3 min). Hito 6 (Oldale): **laboratorio 28 de 166** (0, 0 y 28 por tercios), **sur 36 de 166** (0, 7 y 29), norte 93 de 166 (4, 34 y 55; más lento que R3b al principio y igual al final). **Primeros hitos 7 (rival vencida en la Ruta 103): 2 episodios** (uno del sur y uno del norte); ninguna corrida anterior pasó del 6. En los últimos 30 episodios: giros 189 a 229 por episodio (R3b 368 a 655), choques 28 a 82, casillas distintas 92 a 154 (R3b 43 a 78), batalla 424 a 514 pasos. Distancia mínima a Oldale por tercios: laboratorio 49, 27 y 11, sur 25, 19 y 8, norte 5,7, 2,4 y 0,1. Seguía mejorando al terminar (las llegadas desde laboratorio y sur están en el último tercio). **R3b** (castigos de R1, premio por acercarse 0,01, choque escalado hasta 10, sin castigo de giros ni de diálogos) con **un solo cambio**: la observación pasa de 12 a 162 valores con `--obs-terrain` (parche de 5x5 casillas con libre, puerta y desnivel hacia cada dirección). Motivo: el modelo se queda pegado bajo la fila de desniveles de la Ruta 101 y contra la esquina de una casa sin poder verlos. Referencia: R3b y R3d |
 
 Código: `ppo_curriculum_tile` se lanzó con `Tracker` sin la corrección del mapa `(0,0)`; `ppo_500k` ya la incluye, sobre el
 commit `c74e1d0` más cambios sin commit (varios savestates en `train.py` y esa corrección).
@@ -99,6 +100,30 @@ Lectura: peor que R3b. El laboratorio no avanza ni una casilla ni con muestreo (
 episodio. El castigo por girar quitó los giros pero no mejoró ninguna llegada. Archivo de salida: `runs/eval_ppo_r3c_castigo_giros.txt`
 (no versionado).
 
+### Evaluación de `ppo_r3d_castigo_dialogos` (modelo final, 10 episodios por caso, 1000 pasos máximo, 2026-11-03)
+
+| Punto de partida | Determinista: Oldale (distancia mínima) | Estocástica: Oldale (distancia mínima) |
+|---|---|---|
+| Laboratorio (inicial 65) | 0 de 10 (44 a 56; media 54,8) | 0 de 10 (19 a 54; media 28,1) |
+| Sur de la Ruta 101 (inicial 35) | 0 de 10 (30 en los 10) | 0 de 10 (20 a 22; media 21,1) |
+| Norte de la Ruta 101 (inicial 8) | 0 de 10 (7 en los 10) | **10 de 10** |
+
+Lectura: igual que R3b. En modo determinista el sur vuelve a quedar pegado bajo la fila de desniveles de la Ruta 101 (30 de 35 en los 10,
+pulsando ARRIBA). Medalla 1: 0 en todos. Archivo de salida: `runs/eval_ppo_r3d_castigo_dialogos.txt` (no versionado).
+
+### Evaluación de `ppo_r4a_terreno` (modelo final, 10 episodios por caso, 1000 pasos máximo, 2026-11-03)
+
+| Punto de partida | Determinista: Oldale (distancia mínima) | Estocástica: Oldale (distancia mínima) |
+|---|---|---|
+| Laboratorio (inicial 65) | 0 de 10 (46 en los 10) | **10 de 10** |
+| Sur de la Ruta 101 (inicial 35) | **1 de 10** (0, 8, 15, 15, 19, 19 y 30 en cuatro) | **10 de 10** |
+| Norte de la Ruta 101 (inicial 8) | **10 de 10** | **10 de 10** |
+
+Lectura: es la primera corrida que llega a Oldale con muestreo desde los tres puntos de partida (R3b: laboratorio 0, sur 0), y la primera que lo
+hace en modo determinista desde el norte. El laboratorio determinista se queda atascado a 46 casillas. En el sur determinista los 10 episodios
+ya no son idénticos (el juego introduce variación, p. ej. combates salvajes) y 1 llega. Nadie llegó al hito 7 en 1000 pasos; el tope de
+pasos es probablemente el límite. Medalla 1: 0 en todos. Archivo de salida: `runs/eval_ppo_r4a_terreno.txt` (no versionado).
+
 ### Calibración de los contadores (`calibracion`, 2026-11-02)
 
 30 000 pasos, 3 instancias, mismos puntos de partida y bonus 0,005 que `ppo_500k`, castigos en 0, política casi aleatoria
@@ -157,3 +182,11 @@ Una variante por vez, con los mismos pasos, instancias y savestates que `ppo_500
   sur y a la esquina de la casa) y no recuerda lo que acaba de hacer (R1, R3b y R3c: castigos sin mejora). Referencia para
   comparar: la mejor corrida sin cambio de observación (R3, o R3b/R3d si resulta mejor). Orden sugerido, un cambio por vez:
   R4a solo `--obs-terrain`, R4b solo `--obs-memory`, R4c las dos.
+
+- **Enfoque futuro: red convolucional sobre el terreno (idea del usuario, sin lanzar):** hoy el parche de 5x5 casillas entra a una
+  red de capas densas como 150 números en fila. Una red convolucional pequeña compartiría los detectores de patrón (pared, desnivel)
+  en todas las posiciones del parche. Con 5x5 se espera poca ganancia; tendría sentido con un parche mayor (11x11 o más, para ver
+  puertas y rutas lejanas) o con la pantalla en píxeles. Requiere un extractor de características propio en Stable-Baselines3 y
+  se compararía contra R4a. Va después de R4b (memoria) y R4c (ambas). No confundir con la memoria: las convoluciones miran el
+  espacio; recordar lo que acaba de pasar pide una red recurrente (LSTM), que es otra variante.
+
