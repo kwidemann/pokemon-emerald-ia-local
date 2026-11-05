@@ -5,7 +5,9 @@ Requiere mGBA abierto con `emulator/server.lua` cargado y un savestate de partid
 
 from __future__ import annotations
 
+import json
 import math
+import struct
 from collections import deque
 from pathlib import Path
 
@@ -14,8 +16,9 @@ import numpy as np
 from gymnasium import spaces
 
 from emulator.client import Key, MGBAClient
-from env.distance import distance_field, get_graph
-from env.milestones import BATTLE_TYPE_TRAINER, SHAPING_GOALS, TRAMO_1, Milestone, MilestoneMonitor
+from env.distance import distance_field, get_graph, tile_distance_field
+from env.milestones import BATTLE_TYPE_TRAINER, RIVAL_TILE, ROUTE_103, SHAPING_GOALS, exp_level_cap, exp_medium_slow, TRAMO_1, Milestone, MilestoneMonitor, rival_encounter
+from env import ram_map
 from env.state import GameState, read_state
 
 # Acción discreta -> tecla. NOOP deja pasar el tiempo (útil para animaciones y texto).
@@ -102,6 +105,10 @@ class PokemonEmeraldEnv(gym.Env):
         idle_penalty: float = 0.0,
         loop_penalty: float = 0.0,
         menu_penalty: float = 0.0,
+        battle_penalty: float = 0.0,
+        damage_bonus: float = 0.0,
+        battle_menu_penalty: float = 0.0,
+        exp_bonus: float = 0.0,
         shaping_coef: float = 0.0,
         track_distance: bool = False,
         bump_escalation_cap: int = 1,
@@ -109,6 +116,8 @@ class PokemonEmeraldEnv(gym.Env):
         dialog_penalty: float = 0.0,
         obs_terrain: bool = False,
         obs_memory: bool = False,
+        rival_bonus: float = 0.0,
+        rival_goal: bool = False,
     ):
         """
         hold_frames/wait_frames: medido en vivo, una pulsación de 1-6 frames mueve exactamente una casilla.
@@ -133,6 +142,18 @@ class PokemonEmeraldEnv(gym.Env):
             1 = castigo fijo. El contador `racha_max` guarda la racha más larga del episodio.
         turn_penalty: castigo fijo por cada giro en el lugar (la pulsación solo gira al personaje; 0 = desactivado). No
             reinicia ni aumenta la racha de choques.
+        battle_penalty: castigo fijo por cada paso dentro de una batalla salvaje, o sea sin la bandera de entrenador (0 = desactivado).
+            No se castiga el combate de entrenador (el del rival es la meta). Sin él, el agente no distingue acabar una batalla de
+            quedarse en el menú (R5c: 750 a 960 de 1000 pasos en batalla); no hay premio por terminarla para que no se pueda cultivar.
+        exp_bonus: premio por cada punto de experiencia que gana el Pokémon líder, hasta el nivel que fija `exp_level_cap` según los hitos
+            cumplidos (el nivel adecuado para el siguiente reto: 9 antes del rival, 11 antes de Rustboro, etc.). 0 = desactivado. No
+            hay premio por pasar del tope, así que el agente no gana nada cultivando más de la cuenta. Contador `exp_ganada`.
+        battle_menu_penalty: castigo fijo por cada paso de un combate de entrenador en que la pantalla activa no es la principal de
+            batalla ni el arranque: la Mochila, el equipo o los desvanecidos para entrar y salir de ellos (0 = desactivado). Nada de eso
+            sirve para ganar el combate; R5f pasaba cientos de pasos ahí sin elegir LUCHAR. No afecta a las batallas salvajes.
+        damage_bonus: premio por quitarle vida al Pokémon rival en un combate de entrenador: `damage_bonus * (HP perdidos / HP máximos)`,
+            como mucho `damage_bonus` por episodio y solo con la bandera de entrenador (nunca en batallas salvajes, para que no se
+            pueda cultivar). 0 = desactivado. Lee gEnemyParty[0] (verificado en vivo: el HP baja golpe a golpe).
         dialog_penalty: castigo fijo por cada paso con un diálogo o script activo (0 = desactivado). Sin él, quedarse en un
             diálogo es gratis y el agente puede esconderse ahí cuando los demás castigos superan los premios (ver R3c).
         track_distance: lleva los contadores de distancia (`dist_ini`, `dist_min`, `dist_fin`: casillas que faltan hasta la
@@ -143,15 +164,24 @@ class PokemonEmeraldEnv(gym.Env):
         obs_memory: añade a la observación memoria corta de lo que pasó: casillas del parche ya pisadas en el episodio (25),
             las últimas 4 acciones en one-hot (32), hacia dónde mira el personaje (4) y el resultado del último paso:
             se movió, chocó, giró y racha de choques seguidos / 10 (4).
+        rival_goal: la meta del premio por acercarse para el hito 7 pasa a ser la casilla del rival en la Ruta 103 (10, 3) en vez del
+            mapa entero (R5c).
+        rival_bonus: si es > 0 añade el hito 17 (combate de entrenador iniciado en la Ruta 103) con este premio, una vez por episodio.
         Con las dos opciones en False la observación es la original de 12 valores (los modelos anteriores siguen sirviendo).
         """
         super().__init__()
         # mGBA resuelve las rutas relativas desde su propio directorio, no el nuestro.
         self.savestate = Path(savestate).resolve().as_posix()
+        # Un savestate avanzado (runs/etapas/) trae al lado `<savestate>.json` con los hitos que la historia ya cumplió:
+        # los que dependen del historial (haber pisado Oldale, haber vencido al rival...) no se pueden leer del estado.
+        meta = Path(self.savestate + ".json")
+        self._prior_milestones: tuple[int, ...] = tuple(json.loads(meta.read_text())["hitos_previos"]) if meta.exists() else ()
         self.emu = MGBAClient(host, port)
         self.hold_frames = hold_frames
         self.wait_frames = wait_frames
         self.max_steps = max_steps
+        if rival_bonus:  # hito extra 17, una sola vez por episodio
+            milestones = (*milestones, rival_encounter(rival_bonus))
         self.milestones = milestones
         self.terminal_milestone = terminal_milestone
         self.new_tile_bonus = new_tile_bonus
@@ -159,7 +189,14 @@ class PokemonEmeraldEnv(gym.Env):
         self.idle_penalty = idle_penalty
         self.loop_penalty = loop_penalty
         self.menu_penalty = menu_penalty
+        self.battle_penalty = battle_penalty
+        self.damage_bonus = damage_bonus
+        self.battle_menu_penalty = battle_menu_penalty
+        self.exp_bonus = exp_bonus
+        self._enemy_hp: tuple[int, int] | None = None
+        self._damage_dealt = 0.0
         self.shaping_coef = shaping_coef
+        self.rival_goal = rival_goal
         self.bump_escalation_cap = max(1, bump_escalation_cap)
         self.turn_penalty = turn_penalty
         self.dialog_penalty = dialog_penalty
@@ -181,18 +218,51 @@ class PokemonEmeraldEnv(gym.Env):
         self._state: GameState | None = None
         self._history: deque = deque(maxlen=REVISIT_WINDOW)
         self.counters = self._new_counters()
+        self._enemy_hp = None
+        self._damage_dealt = 0.0
 
     @staticmethod
     def _new_counters() -> dict[str, int]:
-        keys = ("choques", "giros", "quieto", "bucles", "rev3", "rev10", "rev30", "menu", "dialogo", "batalla", "racha_max")
+        keys = ("choques", "giros", "quieto", "bucles", "rev3", "rev10", "rev30", "menu", "dialogo", "batalla", "batalla_salvaje", "golpes_rival", "exp_ganada", "submenu_batalla", "racha_max")
         return dict.fromkeys(keys, 0)
 
     def _goal_field(self) -> dict | None:
         """Campo de distancias hacia la meta del siguiente hito sin cumplir, o None si no queda ninguna."""
         for ms_id, goal in SHAPING_GOALS:
             if ms_id not in self._monitor.achieved:
+                if ms_id == 7 and self.rival_goal:
+                    return tile_distance_field((*ROUTE_103, *RIVAL_TILE))
                 return distance_field(goal)
         return None
+
+    def _experience(self, prev: GameState | None, state: GameState) -> float:
+        """Premio por la experiencia ganada por el líder, solo hasta la experiencia del nivel tope."""
+        if prev is None or not prev.party or not state.party:
+            return 0.0
+        a, b = prev.party[0], state.party[0]
+        if not (a.checksum_ok and b.checksum_ok) or b.experience <= a.experience or b.experience - a.experience > 5000:
+            return 0.0  # sin datos fiables, o un salto que no es de combate
+        cap = exp_medium_slow(exp_level_cap(self._monitor.achieved))
+        gained = min(b.experience, cap) - min(a.experience, cap)
+        if gained <= 0:
+            return 0.0
+        self.counters["exp_ganada"] += gained
+        return self.exp_bonus * gained
+
+    def _damage(self, state: GameState) -> float:
+        """Premio por el daño hecho al Pokémon rival en un combate de entrenador (o 0)."""
+        if not (state.in_battle and state.battle_type_flags & BATTLE_TYPE_TRAINER):
+            self._enemy_hp = None
+            return 0.0
+        _, (raw,) = self.emu.read_multi([(ram_map.G_ENEMY_PARTY + ram_map.MON_HP, 4)])
+        hp, max_hp = struct.unpack("<HH", raw)
+        prev, self._enemy_hp = self._enemy_hp, (hp, max_hp)
+        if prev is None or max_hp == 0 or prev[1] != max_hp or hp >= prev[0] or hp > max_hp:
+            return 0.0  # primer dato del combate, otro Pokémon o lectura rara: no hay referencia fiable
+        fraction = min((prev[0] - hp) / max_hp, 1.0 - self._damage_dealt)
+        self._damage_dealt += fraction
+        self.counters["golpes_rival"] += 1
+        return self.damage_bonus * fraction
 
     def _shape(self, state: GameState) -> float:
         """Premio por acercarse a la meta (o 0). También actualiza `dist_ini`, `dist_min` y `dist_fin`."""
@@ -220,7 +290,13 @@ class PokemonEmeraldEnv(gym.Env):
         c = self.counters
         if state.in_battle:
             c["batalla"] += 1
-            return 0.0
+            if state.battle_type_flags & BATTLE_TYPE_TRAINER:
+                if state.callback2 & ~1 not in (ram_map.CB2_BATTLE_MAIN & ~1, ram_map.CB2_BATTLE_START & ~1):
+                    c["submenu_batalla"] += 1
+                    return -self.battle_menu_penalty
+                return 0.0
+            c["batalla_salvaje"] += 1
+            return -self.battle_penalty
         if state.script_active:
             c["dialogo"] += 1
             return -self.dialog_penalty
@@ -304,9 +380,14 @@ class PokemonEmeraldEnv(gym.Env):
         # Lo que ya se cumple en el savestate no da recompensa: el mismo estado se procesa `confirm` veces.
         for _ in range(self.confirm):
             self._monitor.update(state)
+        for ms_id in self._prior_milestones:
+            if any(m.id == ms_id for m in self.milestones):
+                self._monitor.achieved.setdefault(ms_id, state.frame)
         self._tiles.add((state.map_group, state.map_num, state.x, state.y))
         self._history = deque([(state.map_group, state.map_num, state.x, state.y)], maxlen=REVISIT_WINDOW)
         self.counters = self._new_counters()
+        self._enemy_hp = None
+        self._damage_dealt = 0.0
         self._last_pos = None
         self._bump_streak = 0
         self._last_actions.clear()
@@ -334,6 +415,10 @@ class PokemonEmeraldEnv(gym.Env):
                 reward += self.new_tile_bonus
             self._tiles.add(tile)
             reward += self._count(self._state, state, int(action))
+            if self.damage_bonus:
+                reward += self._damage(state)
+            if self.exp_bonus:
+                reward += self._experience(self._state, state)
             if self.track_distance:
                 reward += self._shape(state)
 

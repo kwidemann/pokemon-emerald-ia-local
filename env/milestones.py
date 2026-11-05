@@ -29,6 +29,27 @@ PETALBURG = (0, 0)  # verificado en vivo (hito 9)
 RUSTBORO = (0, 3)  # verificado en vivo (hito 12)
 RUSTBORO_GYM = (11, 3)  # verificado en vivo (hito 15)
 
+# Tope de nivel del premio por experiencia (R5f): el primer hito sin cumplir de esta lista fija hasta qué nivel del líder se
+# premia ganar experiencia. Los niveles son los de los savestates de `runs/etapas/` (e3 = 8..9 antes del rival, e6 = 11, e8 = 13,
+# e10 = 14); tras el gimnasio (hito 15) hasta el 16, donde evoluciona Mudkip (hito 14) y se espera pelear con Roxanne.
+EXP_LEVEL_CAPS: tuple[tuple[int, int], ...] = ((7, 9), (9, 11), (12, 13), (15, 14), (16, 16))
+
+
+def exp_level_cap(achieved) -> int:
+    """Nivel hasta el que se premia la experiencia, según los hitos ya cumplidos (`achieved`: contenedor de ids)."""
+    for ms_id, cap in EXP_LEVEL_CAPS:
+        if ms_id not in achieved:
+            return cap
+    return EXP_LEVEL_CAPS[-1][1]
+
+
+def exp_medium_slow(level: int) -> int:
+    """Experiencia total de un Pokémon del grupo «medio lento» (Mudkip, Torchic, Treecko y sus evoluciones) en ese nivel."""
+    return max(0, int(6 * level**3 / 5 - 15 * level**2 + 100 * level - 140))
+
+
+RIVAL_TILE = (10, 3)  # casilla del rival en la Ruta 103 (verificado en vivo: NPC 240; se le habla desde una casilla vecina)
+
 # Meta del premio por acercarse (R3): el primer par cuyo hito aún no se ha cumplido manda. Se omite el hito 5 (laboratorio): los
 # puntos de partida de entrenamiento ya lo cumplieron en la partida real y volver atrás sería un desvío. Los hitos sin lugar
 # (8, 10, 11, 13, 14, 16) no tienen meta: tras 15 no queda ninguna y el premio vale 0.
@@ -104,6 +125,18 @@ TRAMO_1: tuple[Milestone, ...] = (
     Milestone(15, "gimnasio de Rustboro", 1.0, _visited(RUSTBORO_GYM), True),
     Milestone(16, "medalla 1 (Roxanne)", 5.0, lambda s, t: s.badges >= 1, True),
 )
+
+
+RIVAL_ENCOUNTER_ID = 17  # hito extra y opcional (no está en specs.md): ver `rival_encounter`
+
+
+def rival_encounter(reward: float) -> Milestone:
+    """Hito opcional para entrenar la etapa del rival: se cumple al empezar un combate de entrenador en la Ruta 103."""
+    return Milestone(
+        RIVAL_ENCOUNTER_ID, "combate con el rival iniciado", reward,
+        lambda s, t: (s.map_group, s.map_num) == ROUTE_103 and s.in_battle and bool(s.battle_type_flags & BATTLE_TYPE_TRAINER),
+        False,
+    )
 
 
 class MilestoneMonitor:

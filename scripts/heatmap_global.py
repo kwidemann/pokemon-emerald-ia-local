@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -35,6 +36,8 @@ RUNS = [
     "ppo_r3c_castigo_giros",
     "ppo_r3d_castigo_dialogos",
     "ppo_r4a_terreno",
+    "ppo_r4b_memoria",
+    "ppo_r4c_terreno_memoria",
 ]
 SCALE = 3  # píxeles por píxel del juego (una casilla = 16 px de juego)
 
@@ -179,13 +182,14 @@ def main() -> None:
         font = ImageFont.truetype("arial.ttf", 30)
     except OSError:
         font = ImageFont.load_default()
+    prefix = os.path.commonprefix([n for n, _ in images]) if len(images) > 1 else ""
     w, h = images[0][1].size
     tw, th, title = w // 2, h // 2, 44
     sheet = Image.new("RGB", (tw * len(images), th + title), (20, 20, 20))
     sd = ImageDraw.Draw(sheet)
     for i, (name, img) in enumerate(images):
         sheet.paste(img.resize((tw, th), Image.LANCZOS), (i * tw, title))
-        sd.text((i * tw + 10, 6), name, fill=(240, 240, 240), font=font)
+        sd.text((i * tw + 10, 6), name[len(prefix):], fill=(240, 240, 240), font=font)
     sheet_path = folder / args.sheet
     sheet.save(sheet_path)
     print(f"{sheet_path.relative_to(ROOT)}: {sheet.width}x{sheet.height}")

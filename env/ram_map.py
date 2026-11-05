@@ -33,6 +33,12 @@ G_MAIN_CALLBACK2 = 0x030022C4  # OK [SYM]+[M]: gMain + 0x04 (cambia según la pa
 # laboratorio); otros valores = menús, batalla, pantalla de nombre (0x080E4F59), reloj (0x08134C9D), etc.
 CB2_OVERWORLD = 0x08085E5D
 
+# Valores de gMain.callback2 dentro de una batalla, vistos con capturas de pantalla en el combate con el rival (R5f):
+CB2_BATTLE_START = 0x08036FAD  # arranque del combate (transición)
+CB2_BATTLE_MAIN = 0x08038421  # pantalla principal: menú «¿Qué hará?» (LUCHAR/MOCHILA/POKéMON/HUIR), elegir ataque, mensajes
+CB2_BAG = 0x081AAD5D  # la Mochila abierta desde el combate
+CB2_FADE = 0x080A933D  # pantalla negra al entrar y salir de la Mochila
+
 G_MAIN_IN_BATTLE = 0x030026F9  # OK [M]: byte gMain+0x439; bit 0x02 = inBattle (True/False al empezar/terminar la 1ª batalla)
 IN_BATTLE_MASK = 0x02
 

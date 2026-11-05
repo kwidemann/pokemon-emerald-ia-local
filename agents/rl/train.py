@@ -54,9 +54,10 @@ def make_vec_env(
 class MilestoneLogger(BaseCallback):
     """Al terminar cada episodio anota los hitos alcanzados (log en archivo y curvas de TensorBoard)."""
 
-    def __init__(self, log_path: Path):
+    def __init__(self, log_path: Path, final_milestone: int = FINAL_MILESTONE):
         super().__init__()
         self.log_path = log_path
+        self.final_milestone = final_milestone
         self.episodes = 0
         self.t0 = time.time()
 
@@ -67,7 +68,7 @@ class MilestoneLogger(BaseCallback):
             self.episodes += 1
             ms = info.get("milestones", [])
             self.logger.record("milestones/count", len(ms))
-            self.logger.record("milestones/final_reached", float(FINAL_MILESTONE in ms))
+            self.logger.record("milestones/final_reached", float(self.final_milestone in ms))
             counters = info.get("contadores", {})
             for name, value in counters.items():
                 self.logger.record(f"contadores/{name}", value)
@@ -102,7 +103,13 @@ def save_config(out: Path, args) -> None:
                 "quieto": args.idle_penalty,
                 "bucles": args.loop_penalty,
                 "menu": args.menu_penalty,
+                "batalla_salvaje": args.battle_penalty,
+                "dano_al_rival_en_combate_de_entrenador": args.damage_bonus,
+                "experiencia_por_punto_hasta_el_nivel_tope": args.exp_bonus,
+                "submenu_en_combate_de_entrenador": args.battle_menu_penalty,
             },
+            "combate_con_el_rival_ruta103": args.rival_bonus,
+            "meta_hito7_casilla_del_rival": args.rival_goal,
             "premio_por_acercarse": {
                 "coef_por_casilla": args.shaping_coef,
                 "metas": {str(i): list(m) for i, m in SHAPING_GOALS},
@@ -130,6 +137,10 @@ def evaluate(model_path: Path, args) -> None:
         "track_distance": True,
         "obs_terrain": saved.get("obs_terrain", False),
         "obs_memory": saved.get("obs_memory", False),
+        "terminal_milestone": args.terminal_milestone,
+        "rival_goal": args.rival_goal,  # la distancia que se informa usa la misma meta que el entrenamiento
+        "rival_bonus": args.rival_bonus,  # solo para que el hito 17 salga en los registros; no afecta a la evaluación
+        "damage_bonus": args.damage_bonus,  # idem: solo para que `golpes_rival` salga en los registros
     }
     env = make_vec_env(args.savestate[:1], 1, args.base_port, args.max_steps, 0.0, options)
     model = PPO.load(model_path, device="cpu")
@@ -142,14 +153,15 @@ def evaluate(model_path: Path, args) -> None:
             obs, _, dones, infos = env.step(action)
             done = bool(dones[0])
         ms = infos[0].get("milestones", [])
-        ok += FINAL_MILESTONE in ms
+        ok += args.terminal_milestone in ms
         c = infos[0].get("contadores", {})
         print(
             f"[{ep + 1}/{args.episodes}] pasos={infos[0].get('steps')} hitos={ms} "
-            f"distancia_a_la_meta: inicial={c.get('dist_ini')} minima={c.get('dist_min')} final={c.get('dist_fin')}",
+            f"distancia_a_la_meta: inicial={c.get('dist_ini')} minima={c.get('dist_min')} final={c.get('dist_fin')} "
+            f"golpes_rival={c.get('golpes_rival', 0)}",
             flush=True,
         )
-    print(f"Éxito (medalla 1): {ok}/{args.episodes}")
+    print(f"Éxito (hito {args.terminal_milestone}): {ok}/{args.episodes}")
     env.close()
 
 
@@ -171,6 +183,13 @@ def main() -> None:
     parser.add_argument("--shaping-coef", type=float, default=0.0, help="premio por casilla que se acerca a la meta del siguiente hito (0 = desactivado)")
     parser.add_argument("--obs-terrain", action="store_true", help="observación: añade el terreno de las 5x5 casillas alrededor (paredes, desniveles, puertas)")
     parser.add_argument("--obs-memory", action="store_true", help="observación: añade memoria corta (casillas pisadas, últimas acciones, orientación, resultado del último paso)")
+    parser.add_argument("--terminal-milestone", type=int, default=FINAL_MILESTONE, help="el episodio termina al cumplir este hito (16 = medalla 1; para entrenar una etapa, el hito de su final)")
+    parser.add_argument("--battle-penalty", type=float, default=0.0, help="castigo por paso dentro de una batalla salvaje (0 = desactivado)")
+    parser.add_argument("--damage-bonus", type=float, default=0.0, help="premio total por dejar sin HP al Pokémon rival en un combate de entrenador (proporcional al daño; 0 = desactivado)")
+    parser.add_argument("--exp-bonus", type=float, default=0.0, help="premio por punto de experiencia ganado por el líder, hasta el nivel tope según los hitos (0 = desactivado)")
+    parser.add_argument("--battle-menu-penalty", type=float, default=0.0, help="castigo por paso, en combate de entrenador, en la Mochila/equipo/desvanecidos en vez de la pantalla principal de batalla (0 = desactivado)")
+    parser.add_argument("--rival-goal", action="store_true", help="la meta del premio por acercarse para el hito 7 es la casilla del rival (10, 3) de la Ruta 103, no el mapa")
+    parser.add_argument("--rival-bonus", type=float, default=0.0, help="premio único por empezar el combate con el rival de la Ruta 103 (hito extra 17; 0 = desactivado)")
     parser.add_argument("--n-steps", type=int, default=512, help="pasos por entorno antes de cada actualización")
     parser.add_argument("--ent-coef", type=float, default=0.01, help="premia explorar (más alto = más aleatorio)")
     parser.add_argument("--name", help="nombre de la corrida (por defecto, la fecha)")
@@ -192,12 +211,19 @@ def main() -> None:
         "idle_penalty": args.idle_penalty,
         "loop_penalty": args.loop_penalty,
         "menu_penalty": args.menu_penalty,
+        "battle_penalty": args.battle_penalty,
+        "damage_bonus": args.damage_bonus,
+        "battle_menu_penalty": args.battle_menu_penalty,
+        "exp_bonus": args.exp_bonus,
         "shaping_coef": args.shaping_coef,
         "bump_escalation_cap": args.bump_escalation_cap,
         "turn_penalty": args.turn_penalty,
         "dialog_penalty": args.dialog_penalty,
         "obs_terrain": args.obs_terrain,
         "obs_memory": args.obs_memory,
+        "terminal_milestone": args.terminal_milestone,
+        "rival_bonus": args.rival_bonus,
+        "rival_goal": args.rival_goal,
     }
     vec = make_vec_env(args.savestate, args.n_envs, args.base_port, args.max_steps, args.new_tile_bonus, env_options)
     model = PPO(
@@ -210,7 +236,7 @@ def main() -> None:
         tensorboard_log=str(out / "tb"),
         verbose=1,
     )
-    callbacks = [MilestoneLogger(out / "train.log")]
+    callbacks = [MilestoneLogger(out / "train.log", args.terminal_milestone)]
     if args.checkpoint_every:
         callbacks.append(
             CheckpointCallback(max(args.checkpoint_every // args.n_envs, 1), str(out / "checkpoints"), name_prefix="ppo")

@@ -197,9 +197,23 @@ class WalkGraph:
                     queue.append(prev)
         return dist
 
+    def distances_to_tile(self, goal: Node) -> dict[Node, int]:
+        """Pasos mínimos desde cada casilla hasta la casilla `goal` (mapa, x, y); vacío si no está en el grafo."""
+        dist: dict[Node, int] = {goal: 0}
+        queue: deque[Node] = deque([goal])
+        while queue:
+            cur = queue.popleft()
+            d = dist[cur] + 1
+            for prev in self.reverse.get(cur, ()):
+                if prev not in dist:
+                    dist[prev] = d
+                    queue.append(prev)
+        return dist
+
 
 _GRAPH: WalkGraph | None = None
 _FIELDS: dict[MapId, dict[Node, int]] = {}
+_TILE_FIELDS: dict[Node, dict[Node, int]] = {}
 
 
 def get_graph() -> WalkGraph:
@@ -217,3 +231,10 @@ def distance_field(goal: MapId) -> dict[Node, int]:
     if goal not in _FIELDS:
         _FIELDS[goal] = get_graph().distances_to_map(goal)
     return _FIELDS[goal]
+
+
+def tile_distance_field(goal: Node) -> dict[Node, int]:
+    """Campo de distancias hacia una casilla concreta (mapa, x, y), en caché por proceso."""
+    if goal not in _TILE_FIELDS:
+        _TILE_FIELDS[goal] = get_graph().distances_to_tile(goal)
+    return _TILE_FIELDS[goal]
